@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aegis"
+version = "0.1.0"
+description = "Autonomous AI Security Defense System for Windows"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [
+    { name = "Aegis Contributors" },
+]
+
+dependencies = [
+    "pyzmq>=25.0",
+    "psutil>=5.9",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+gui = [
+    "PySide6>=6.6",
+    "win10toast-reborn>=1.0; sys_platform == 'win32'",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.1",
+]
+ml = [
+    "scikit-learn>=1.3",
+    "torch>=2.0",
+    "onnxruntime>=1.16",
+]
+network = [
+    "scapy>=2.5",
+]
+windows = [
+    "pywin32>=306; sys_platform == 'win32'",
+    "WMI>=1.5; sys_platform == 'win32'",
+    "yara-python>=4.3",
+]
+
+[project.scripts]
+aegis = "aegis.__main__:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP"]
