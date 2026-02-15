@@ -1,0 +1,125 @@
+# Aegis Behavioral Rules — shipped with the application
+# Format: each rule has conditions matched against AegisEvent data fields
+# Severity: critical, high, medium, low, info
+# MITRE ATT&CK technique IDs for mapping
+
+rules:
+  - id: suspicious_office_child
+    description: "Office application spawning command interpreter"
+    severity: high
+    mitre: [T1059]
+    sensor: process
+    event_type: process_snapshot
+    conditions:
+      - field: name
+        op: in
+        value: [cmd.exe, powershell.exe, wscript.exe, cscript.exe, mshta.exe]
+      # Parent check done at match time against process tree
+
+  - id: encoded_powershell
+    description: "PowerShell launched with encoded command (potential fileless attack)"
+    severity: high
+    mitre: [T1059.001, T1027]
+    sensor: process
+    event_type: process_snapshot
+    conditions:
+      - field: name
+        op: eq
+        value: powershell.exe
+      - field: cmdline
+        op: contains_any
+        value: ["-enc ", "-encodedcommand ", "-e ", "-ec "]
+
+  - id: process_masquerading
+    description: "Process name matches system binary but runs from unexpected location"
+    severity: high
+    mitre: [T1036.005]
+    sensor: process
+    event_type: process_snapshot
+    conditions:
+      - field: is_masquerading
+        op: eq
+        value: true
+
+  - id: high_entropy_cmdline
+    description: "Process command line has unusually high entropy (possible obfuscation)"
+    severity: medium
+    mitre: [T1027]
+    sensor: process
+    event_type: process_snapshot
+    conditions:
+      - field: cmdline_entropy
+        op: gt
+        value: 5.5
+
+  - id: deep_process_chain
+    description: "Deeply nested process tree (unusual parent-child depth)"
+    severity: medium
+    mitre: [T1059]
+    sensor: process
+    event_type: process_snapshot
+    conditions:
+      - field: lineage_depth
+        op: gt
+        value: 5
+
+  - id: high_connection_count
+    description: "Excessive number of active network connections (possible C2 or scan)"
+    severity: medium
+    mitre: [T1071]
+    sensor: network
+    event_type: network_flow_stats
+    conditions:
+      - field: total_connections
+        op: gt
+        value: 500
+
+  - id: port_scan_entropy
+    description: "High port entropy indicating potential port scanning activity"
+    severity: high
+    mitre: [T1046]
+    sensor: network
+    event_type: network_flow_stats
+    conditions:
+      - field: port_entropy
+        op: gt
+        value: 4.0
+      - field: unique_remote_ports
+        op: gt
+        value: 50
+
+  - id: rapid_new_destinations
+    description: "Many new IP destinations contacted in single cycle (recon or worm)"
+    severity: high
+    mitre: [T1018]
+    sensor: network
+    event_type: network_flow_stats
+    conditions:
+      - field: new_destination_rate
+        op: gt
+        value: 20
+
+  - id: unsigned_process_network
+    description: "Unsigned process making network connections"
+    severity: medium
+    mitre: [T1071]
+    sensor: process
+    event_type: process_snapshot
+    conditions:
+      - field: num_connections
+        op: gt
+        value: 0
+      - field: signature_status
+        op: eq
+        value: unsigned
+
+  - id: temp_dir_execution
+    description: "Executable running from temporary directory"
+    severity: medium
+    mitre: [T1204]
+    sensor: process
+    event_type: process_snapshot
+    conditions:
+      - field: exe
+        op: contains_any
+        value: ["\\Temp\\", "\\tmp\\", "\\AppData\\Local\\Temp\\"]
