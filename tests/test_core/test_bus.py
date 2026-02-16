@@ -1,9 +1,9 @@
 """Tests for Aegis ZeroMQ message bus."""
 
-import pytest
-import time
 import random
-from aegis.core.bus import EventBus, EventSubscriber, EventPublisher
+import time
+
+from aegis.core.bus import EventBus, EventPublisher, EventSubscriber
 from aegis.core.models import AegisEvent, SensorType
 
 

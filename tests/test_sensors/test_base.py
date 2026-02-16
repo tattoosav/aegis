@@ -1,9 +1,9 @@
 """Tests for the abstract sensor base class."""
 
-import pytest
 import time
-from aegis.sensors.base import BaseSensor
+
 from aegis.core.models import AegisEvent, SensorType
+from aegis.sensors.base import BaseSensor
 
 
 class MockSensor(BaseSensor):

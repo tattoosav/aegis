@@ -1,7 +1,6 @@
 """Shared test fixtures for Aegis."""
 
 import pytest
-import yaml
 
 
 @pytest.fixture

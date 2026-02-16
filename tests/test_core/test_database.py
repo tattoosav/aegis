@@ -1,9 +1,9 @@
 """Tests for Aegis SQLite database layer."""
 
-import pytest
 import time
+
 from aegis.core.database import AegisDatabase
-from aegis.core.models import AegisEvent, Alert, SensorType, Severity, AlertStatus
+from aegis.core.models import AegisEvent, Alert, AlertStatus, SensorType, Severity
 
 
 class TestDatabaseInit:

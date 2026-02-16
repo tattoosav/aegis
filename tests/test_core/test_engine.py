@@ -1,10 +1,10 @@
 """Tests for the Aegis Event Engine."""
 
-import pytest
-import time
 import random
-from aegis.core.engine import EventEngine
+import time
+
 from aegis.core.config import AegisConfig
+from aegis.core.engine import EventEngine
 from aegis.core.models import AegisEvent, SensorType
 
 

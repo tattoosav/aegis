@@ -1,11 +1,11 @@
 """Integration tests: Phase 3 — detection engines + alert manager pipeline."""
 
-import pytest
 import numpy as np
-from aegis.core.models import AegisEvent, Alert, SensorType, Severity
-from aegis.detection.rule_engine import RuleEngine, BehavioralRule
-from aegis.detection.anomaly import AnomalyDetector
+
 from aegis.alerting.manager import AlertManager
+from aegis.core.models import AegisEvent, SensorType, Severity
+from aegis.detection.anomaly import AnomalyDetector
+from aegis.detection.rule_engine import BehavioralRule, RuleEngine
 
 
 class TestDetectionToAlertPipeline:

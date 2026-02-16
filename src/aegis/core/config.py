@@ -11,7 +11,6 @@ from typing import Any
 
 import yaml
 
-
 DEFAULT_CONFIG: dict[str, Any] = {
     "sensors": {
         "network": {
@@ -144,7 +143,7 @@ class AegisConfig:
             yaml.dump(self._data, f, default_flow_style=False, sort_keys=False)
 
     @classmethod
-    def load(cls, path: Path) -> "AegisConfig":
+    def load(cls, path: Path) -> AegisConfig:
         """Load config from YAML, merging with defaults for missing keys."""
         path = Path(path)
         if not path.exists():

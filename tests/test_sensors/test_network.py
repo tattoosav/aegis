@@ -1,10 +1,8 @@
 """Tests for the Network Sensor."""
 
 import time
-import pytest
-from unittest.mock import patch, MagicMock
 
-from aegis.core.models import AegisEvent, SensorType, Severity
+from aegis.core.models import AegisEvent, SensorType
 from aegis.sensors.network import NetworkSensor
 
 

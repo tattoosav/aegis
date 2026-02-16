@@ -461,6 +461,10 @@ class GraphAnalyzer:
         """Ingest an event into the graph."""
         return self._graph.ingest_event(event)
 
+    def add_event(self, event: AegisEvent) -> GraphNode:
+        """Alias for :meth:`ingest` (used by DetectionPipeline)."""
+        return self.ingest(event)
+
     def analyze(self) -> list[ChainMatch]:
         """Run all attack chain detections and return matches.
 

@@ -10,7 +10,7 @@ import abc
 import logging
 import threading
 import time
-from typing import Callable
+from collections.abc import Callable
 
 from aegis.core.models import AegisEvent, SensorType
 

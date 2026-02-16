@@ -22,7 +22,7 @@ class SensorType(Enum):
     CLIPBOARD = "clipboard"
 
     @classmethod
-    def from_string(cls, value: str) -> "SensorType":
+    def from_string(cls, value: str) -> SensorType:
         return cls(value.lower())
 
 
@@ -47,7 +47,7 @@ class Severity(Enum):
         return weights[self.value]
 
     @classmethod
-    def from_string(cls, value: str) -> "Severity":
+    def from_string(cls, value: str) -> Severity:
         return cls(value.lower())
 
 
@@ -88,7 +88,7 @@ class AegisEvent:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "AegisEvent":
+    def from_dict(cls, d: dict[str, Any]) -> AegisEvent:
         """Deserialize from dictionary."""
         return cls(
             event_id=d["event_id"],
@@ -104,7 +104,7 @@ class AegisEvent:
         return json.dumps(self.to_dict()).encode("utf-8")
 
     @classmethod
-    def from_bytes(cls, raw: bytes) -> "AegisEvent":
+    def from_bytes(cls, raw: bytes) -> AegisEvent:
         """Deserialize from bytes."""
         return cls.from_dict(json.loads(raw.decode("utf-8")))
 
@@ -163,7 +163,7 @@ class Alert:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "Alert":
+    def from_dict(cls, d: dict[str, Any]) -> Alert:
         """Deserialize from dictionary."""
         return cls(
             alert_id=d["alert_id"],

@@ -1,9 +1,7 @@
 """Tests for the Alert Manager — scoring, dedup, routing."""
 
-import time
-import pytest
-from aegis.core.models import Alert, SensorType, Severity, AlertStatus
 from aegis.alerting.manager import AlertManager
+from aegis.core.models import Alert, SensorType, Severity
 
 
 class TestAlertScoring:

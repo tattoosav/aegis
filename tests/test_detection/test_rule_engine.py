@@ -1,8 +1,7 @@
 """Tests for the Rule Engine detection module."""
 
-import pytest
 from aegis.core.models import AegisEvent, SensorType, Severity
-from aegis.detection.rule_engine import RuleEngine, BehavioralRule
+from aegis.detection.rule_engine import BehavioralRule, RuleEngine
 
 
 class TestBehavioralRule:

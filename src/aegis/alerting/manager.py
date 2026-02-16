@@ -19,11 +19,11 @@ Routing:
 from __future__ import annotations
 
 import logging
-import time
 import threading
+import time
 from typing import Any
 
-from aegis.core.models import Alert, AlertStatus, SensorType, Severity
+from aegis.core.models import Alert, SensorType, Severity
 
 logger = logging.getLogger(__name__)
 
