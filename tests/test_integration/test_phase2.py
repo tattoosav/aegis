@@ -1,15 +1,14 @@
 """Integration tests: Phase 2 — sensors wired to Event Engine."""
 
-import time
 import random
-import pytest
+import time
 
+from aegis.core.bus import EventPublisher
 from aegis.core.config import AegisConfig
 from aegis.core.engine import EventEngine
-from aegis.core.bus import EventPublisher
-from aegis.core.models import AegisEvent, SensorType
-from aegis.sensors.process import ProcessSensor
+from aegis.core.models import SensorType
 from aegis.sensors.network import NetworkSensor
+from aegis.sensors.process import ProcessSensor
 
 
 def _rand_ports():

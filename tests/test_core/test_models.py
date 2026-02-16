@@ -1,6 +1,5 @@
 """Tests for Aegis event data models."""
 
-import pytest
 from aegis.core.models import (
     AegisEvent,
     Alert,

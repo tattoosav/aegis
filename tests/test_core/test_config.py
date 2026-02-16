@@ -1,8 +1,7 @@
 """Tests for Aegis configuration manager."""
 
-import pytest
 import yaml
-from pathlib import Path
+
 from aegis.core.config import AegisConfig
 
 

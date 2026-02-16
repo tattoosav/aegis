@@ -1,6 +1,6 @@
 """Tests for the headless tray manager and tray state."""
 
-from aegis.ui.tray import AegisTrayManager, TrayState, STATUS_COLORS
+from aegis.ui.tray import STATUS_COLORS, AegisTrayManager, TrayState
 
 
 class TestTrayState:

@@ -17,11 +17,11 @@ import shutil
 import subprocess
 import time
 import uuid
-
-import psutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+import psutil
 
 logger = logging.getLogger(__name__)
 

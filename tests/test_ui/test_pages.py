@@ -4,7 +4,6 @@ These tests verify that all page modules can be imported and their
 classes instantiated (with a Qt app) without errors.
 """
 
-import pytest
 
 # We need a QApplication for any QWidget creation
 _app = None
@@ -252,7 +251,7 @@ class TestDashboardWindow:
         get_app()
         from aegis.ui.dashboard import DashboardWindow
         window = DashboardWindow(db=None)
-        assert window._stack.count() == 4
+        assert window._stack.count() == 8
 
     def test_update_status(self):
         get_app()

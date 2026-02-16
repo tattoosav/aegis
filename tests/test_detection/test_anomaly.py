@@ -1,8 +1,9 @@
 """Tests for the Isolation Forest anomaly detection engine."""
 
-import pytest
 import numpy as np
-from aegis.core.models import AegisEvent, SensorType, Severity
+import pytest
+
+from aegis.core.models import AegisEvent, SensorType
 from aegis.detection.anomaly import AnomalyDetector
 
 

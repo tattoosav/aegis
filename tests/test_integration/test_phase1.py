@@ -1,11 +1,11 @@
 """Integration test: verify Phase 1 components work together."""
 
-import pytest
-import time
 import random
+import time
+
+from aegis.core.bus import EventPublisher
 from aegis.core.config import AegisConfig
 from aegis.core.engine import EventEngine
-from aegis.core.bus import EventPublisher
 from aegis.core.models import AegisEvent, Alert, SensorType, Severity
 from aegis.sensors.base import BaseSensor
 from aegis.ui.tray import AegisTrayManager, TrayState

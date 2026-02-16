@@ -1,7 +1,6 @@
 """Tests for Aegis system tray and app (non-GUI unit tests)."""
 
-import pytest
-from aegis.ui.tray import TrayState, AegisTrayManager
+from aegis.ui.tray import AegisTrayManager, TrayState
 
 
 class TestTrayState:
