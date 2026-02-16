@@ -1,0 +1,298 @@
+{
+  "techniques": [
+    {
+      "technique_id": "T1189",
+      "name": "Drive-by Compromise",
+      "tactic": "initial-access",
+      "description": "Adversaries may gain access to a system through a user visiting a website that exploits the browser or a plugin to execute code.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1566",
+      "name": "Phishing",
+      "tactic": "initial-access",
+      "description": "Adversaries may send phishing messages to gain access, typically via malicious attachments or links in email.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1078",
+      "name": "Valid Accounts",
+      "tactic": "initial-access",
+      "description": "Adversaries may obtain and abuse existing account credentials to gain initial access or persist within an environment.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1204.002",
+      "name": "User Execution: Malicious File",
+      "tactic": "execution",
+      "description": "An adversary relies on a user opening a malicious file to execute code on the local system.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1059.001",
+      "name": "Command and Scripting Interpreter: PowerShell",
+      "tactic": "execution",
+      "description": "Adversaries may abuse PowerShell commands and scripts for execution, leveraging its deep OS integration.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1059.003",
+      "name": "Command and Scripting Interpreter: Windows Command Shell",
+      "tactic": "execution",
+      "description": "Adversaries may abuse cmd.exe to execute commands, scripts, or binaries on Windows systems.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1059.005",
+      "name": "Command and Scripting Interpreter: Visual Basic",
+      "tactic": "execution",
+      "description": "Adversaries may abuse VBScript or VBA macros for execution, often delivered via Office documents.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1053",
+      "name": "Scheduled Task/Job",
+      "tactic": "persistence",
+      "description": "Adversaries may create scheduled tasks or jobs to execute malicious code at system startup or on a recurring schedule.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1547.001",
+      "name": "Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder",
+      "tactic": "persistence",
+      "description": "Adversaries may add programs to the Run registry keys or Startup folder so they execute each time a user logs on.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1543",
+      "name": "Create or Modify System Process",
+      "tactic": "persistence",
+      "description": "Adversaries may create or modify Windows services to repeatedly execute malicious payloads as part of persistence.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1547.009",
+      "name": "Boot or Logon Autostart Execution: Shortcut Modification",
+      "tactic": "persistence",
+      "description": "Adversaries may modify shortcut files to execute their payload when the user clicks the shortcut.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1548",
+      "name": "Abuse Elevation Control Mechanism",
+      "tactic": "privilege-escalation",
+      "description": "Adversaries may circumvent UAC or other elevation control mechanisms to gain higher privileges on a system.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1055.001",
+      "name": "Process Injection: Dynamic-link Library Injection",
+      "tactic": "defense-evasion",
+      "description": "Adversaries may inject DLLs into processes to evade defenses and elevate privileges by executing in the context of another process.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1027",
+      "name": "Obfuscated Files or Information",
+      "tactic": "defense-evasion",
+      "description": "Adversaries may obfuscate payloads through encoding, encryption, or steganography to hinder detection.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1562",
+      "name": "Impair Defenses",
+      "tactic": "defense-evasion",
+      "description": "Adversaries may disable or tamper with security tools, firewall rules, or logging to evade detection.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1070",
+      "name": "Indicator Removal",
+      "tactic": "defense-evasion",
+      "description": "Adversaries may delete or modify logs, files, or artifacts to remove evidence of their activity.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1140",
+      "name": "Deobfuscate/Decode Files or Information",
+      "tactic": "defense-evasion",
+      "description": "Adversaries may deobfuscate or decode encoded files or information used during an intrusion.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1218",
+      "name": "System Binary Proxy Execution",
+      "tactic": "defense-evasion",
+      "description": "Adversaries may use trusted system binaries to proxy execution of malicious content to bypass application controls.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1555",
+      "name": "Credentials from Password Stores",
+      "tactic": "credential-access",
+      "description": "Adversaries may search password stores such as browser credential databases to obtain user credentials.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1003",
+      "name": "OS Credential Dumping",
+      "tactic": "credential-access",
+      "description": "Adversaries may dump credentials from the operating system using tools like Mimikatz to obtain account passwords or hashes.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1110",
+      "name": "Brute Force",
+      "tactic": "credential-access",
+      "description": "Adversaries may use brute force password guessing or credential stuffing to gain access to accounts.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1056.001",
+      "name": "Input Capture: Keylogging",
+      "tactic": "credential-access",
+      "description": "Adversaries may log keystrokes to intercept credentials and other sensitive information as users type.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1552",
+      "name": "Unsecured Credentials",
+      "tactic": "credential-access",
+      "description": "Adversaries may search file systems or registries for insecurely stored credentials.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1082",
+      "name": "System Information Discovery",
+      "tactic": "discovery",
+      "description": "An adversary may gather detailed system information including OS version, hardware, and patches to aid targeting.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1083",
+      "name": "File and Directory Discovery",
+      "tactic": "discovery",
+      "description": "Adversaries may enumerate files and directories to locate data of interest before exfiltration.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1057",
+      "name": "Process Discovery",
+      "tactic": "discovery",
+      "description": "Adversaries may enumerate running processes to understand software and security tools on the system.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1016",
+      "name": "System Network Configuration Discovery",
+      "tactic": "discovery",
+      "description": "Adversaries may look for network configuration details such as IP addresses, DNS, and routing to inform further actions.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1021",
+      "name": "Remote Services",
+      "tactic": "lateral-movement",
+      "description": "Adversaries may use valid accounts to log into remote services such as RDP or SMB to move laterally within a network.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1021.001",
+      "name": "Remote Services: Remote Desktop Protocol",
+      "tactic": "lateral-movement",
+      "description": "Adversaries may use RDP to remotely log into systems for lateral movement and interactive access.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1021.002",
+      "name": "Remote Services: SMB/Windows Admin Shares",
+      "tactic": "lateral-movement",
+      "description": "Adversaries may use SMB shares like C$ and ADMIN$ to move laterally and transfer files between systems.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1005",
+      "name": "Data from Local System",
+      "tactic": "collection",
+      "description": "Adversaries may search local system sources such as file systems and databases for sensitive data before exfiltration.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1560",
+      "name": "Archive Collected Data",
+      "tactic": "collection",
+      "description": "An adversary may compress or encrypt collected data before exfiltration to reduce the size and avoid detection.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1115",
+      "name": "Clipboard Data",
+      "tactic": "collection",
+      "description": "Adversaries may collect data stored in the clipboard from users copying information within or between applications.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1071",
+      "name": "Application Layer Protocol",
+      "tactic": "command-and-control",
+      "description": "Adversaries may communicate using common application layer protocols such as HTTP, HTTPS, or DNS to blend with normal traffic.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1573",
+      "name": "Encrypted Channel",
+      "tactic": "command-and-control",
+      "description": "Adversaries may encrypt C2 communications using symmetric or asymmetric encryption to avoid detection.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1105",
+      "name": "Ingress Tool Transfer",
+      "tactic": "command-and-control",
+      "description": "Adversaries may transfer tools or files from an external system into a compromised environment.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1041",
+      "name": "Exfiltration Over C2 Channel",
+      "tactic": "exfiltration",
+      "description": "Adversaries may exfiltrate data over the existing command and control channel rather than creating a separate connection.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1567",
+      "name": "Exfiltration Over Web Service",
+      "tactic": "exfiltration",
+      "description": "Adversaries may use legitimate web services such as cloud storage to exfiltrate data from a network.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1048",
+      "name": "Exfiltration Over Alternative Protocol",
+      "tactic": "exfiltration",
+      "description": "Adversaries may exfiltrate data using a protocol other than the existing C2 channel, such as DNS or FTP.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1486",
+      "name": "Data Encrypted for Impact",
+      "tactic": "impact",
+      "description": "Adversaries may encrypt data on target systems to interrupt availability, typically as part of a ransomware attack.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1489",
+      "name": "Service Stop",
+      "tactic": "impact",
+      "description": "Adversaries may stop or disable services to render resources unavailable, often targeting security or backup services.",
+      "platforms": ["Windows"]
+    },
+    {
+      "technique_id": "T1490",
+      "name": "Inhibit System Recovery",
+      "tactic": "impact",
+      "description": "Adversaries may delete or disable system recovery features such as shadow copies to prevent restoration after encryption.",
+      "platforms": ["Windows"]
+    }
+  ]
+}

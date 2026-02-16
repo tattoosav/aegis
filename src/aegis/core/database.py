@@ -90,6 +90,19 @@ CREATE TABLE IF NOT EXISTS user_feedback (
 );
 CREATE INDEX IF NOT EXISTS idx_feedback_alert_type ON user_feedback(alert_type);
 
+CREATE TABLE IF NOT EXISTS ioc_indicators (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ioc_type TEXT NOT NULL,
+    value TEXT NOT NULL,
+    source TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'medium',
+    first_seen REAL NOT NULL,
+    last_updated REAL NOT NULL,
+    metadata TEXT NOT NULL DEFAULT '{}'
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ioc_type_value ON ioc_indicators(ioc_type, value);
+CREATE INDEX IF NOT EXISTS idx_ioc_value ON ioc_indicators(value);
+
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp REAL NOT NULL,
@@ -310,3 +323,86 @@ class AegisDatabase:
             }
             for row in cursor.fetchall()
         ]
+
+    # --- IOC Indicators ---
+
+    def upsert_ioc(
+        self,
+        ioc_type: str,
+        value: str,
+        source: str,
+        severity: str = "medium",
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Insert or update an IOC indicator."""
+        now = time.time()
+        self._conn.execute(
+            "INSERT INTO ioc_indicators "
+            "(ioc_type, value, source, severity, first_seen, last_updated, metadata) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(ioc_type, value) DO UPDATE SET "
+            "severity = excluded.severity, "
+            "last_updated = excluded.last_updated, "
+            "metadata = excluded.metadata",
+            (
+                ioc_type,
+                value,
+                source,
+                severity,
+                now,
+                now,
+                json.dumps(metadata or {}),
+            ),
+        )
+        self._conn.commit()
+
+    def lookup_ioc(self, ioc_type: str, value: str) -> dict[str, Any] | None:
+        """Look up a single IOC by type and value."""
+        cursor = self._conn.execute(
+            "SELECT * FROM ioc_indicators WHERE ioc_type = ? AND value = ?",
+            (ioc_type, value),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row["id"],
+            "ioc_type": row["ioc_type"],
+            "value": row["value"],
+            "source": row["source"],
+            "severity": row["severity"],
+            "first_seen": row["first_seen"],
+            "last_updated": row["last_updated"],
+            "metadata": json.loads(row["metadata"]),
+        }
+
+    def lookup_ioc_by_value(self, value: str) -> list[dict[str, Any]]:
+        """Look up all IOC entries matching a value (any type)."""
+        cursor = self._conn.execute(
+            "SELECT * FROM ioc_indicators WHERE value = ?", (value,)
+        )
+        return [
+            {
+                "id": row["id"],
+                "ioc_type": row["ioc_type"],
+                "value": row["value"],
+                "source": row["source"],
+                "severity": row["severity"],
+                "first_seen": row["first_seen"],
+                "last_updated": row["last_updated"],
+                "metadata": json.loads(row["metadata"]),
+            }
+            for row in cursor.fetchall()
+        ]
+
+    def get_all_ioc_values(self) -> list[str]:
+        """Return all IOC values (for Bloom filter rebuild)."""
+        cursor = self._conn.execute(
+            "SELECT DISTINCT value FROM ioc_indicators"
+        )
+        return [row[0] for row in cursor.fetchall()]
+
+    def ioc_count(self) -> int:
+        """Count total IOC indicators."""
+        cursor = self._conn.execute("SELECT COUNT(*) FROM ioc_indicators")
+        return cursor.fetchone()[0]
