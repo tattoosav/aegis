@@ -35,3 +35,6 @@ Desktop.ini
 # Aegis runtime
 logs/
 aegis_config.yaml
+
+# Worktrees
+.worktrees/
