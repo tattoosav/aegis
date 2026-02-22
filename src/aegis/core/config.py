@@ -42,6 +42,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
                 "abuseipdb": {"enabled": False, "api_key": ""},
                 "phishtank": {"enabled": True, "api_key": ""},
             },
+            "stix_taxii": {
+                "enabled": False,
+                "stix_bundles": [],
+                "taxii_server_url": "",
+                "taxii_collection_id": "",
+                "taxii_username": "",
+                "taxii_password": "",
+            },
         },
         "hardware": {
             "enabled": False,
@@ -90,6 +98,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "critical_fullscreen": True,
         "daily_digest": True,
         "auto_suppress_after_dismissals": 3,
+    },
+    "response": {
+        "playbooks": {
+            "enabled": True,
+            "playbooks_dir": "rules/playbooks",
+        },
+        "reports": {
+            "enabled": True,
+            "output_dir": "%APPDATA%/Aegis/reports",
+        },
     },
     "database": {
         "path": "%APPDATA%/Aegis/aegis.db",

@@ -39,6 +39,8 @@ network = [
 ]
 detection = [
     "pySigma>=0.11",
+    "stix2>=3.0",
+    "taxii2-client>=2.3",
 ]
 windows = [
     "pywin32>=306; sys_platform == 'win32'",

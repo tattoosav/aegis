@@ -180,6 +180,32 @@ def main() -> int:
         engine._forensic_logger = forensic_logger
         logger.info("Forensic logger attached")
 
+    # Wire playbook engine
+    try:
+        from aegis.response.playbook_engine import PlaybookEngine
+
+        playbook_engine = PlaybookEngine(
+            playbooks_dir=config.get("response.playbooks.playbooks_dir"),
+        )
+        loaded = playbook_engine.load_playbooks()
+        engine._playbook_engine = playbook_engine
+        logger.info("Playbook engine loaded (%d playbooks)", loaded)
+    except Exception:
+        logger.warning("Playbook engine not available")
+
+    # Wire report generator
+    try:
+        from aegis.response.report_generator import ReportGenerator
+
+        report_generator = ReportGenerator(
+            forensic_logger=forensic_logger,
+            mitre_mapper=getattr(engine, "_mitre_mapper", None),
+        )
+        engine._report_generator = report_generator
+        logger.info("Report generator available")
+    except Exception:
+        logger.warning("Report generator not available")
+
     # Start sensors
     sensors = _start_sensors(config, engine)
     engine._active_sensors = sensors

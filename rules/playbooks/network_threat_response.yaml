@@ -1,0 +1,20 @@
+id: network_threat_response
+name: Network Threat Response
+description: >
+  Blocks malicious IPs and domains detected through DNS
+  analysis or threat intelligence feed matches.
+trigger:
+  alert_type_prefix: dns_
+  min_severity: medium
+steps:
+  - action: block_ip
+    target_from: alert.data.resolved_ip
+    requires_approval: true
+    condition: alert.data.resolved_ip != null
+  - action: block_domain
+    target_from: alert.data.query_name
+    requires_approval: true
+  - action: kill_process
+    target_from: alert.data.pid
+    requires_approval: true
+    condition: alert.data.pid != null

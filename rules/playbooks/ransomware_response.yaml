@@ -1,0 +1,22 @@
+id: ransomware_response
+name: Ransomware Incident Response
+description: >
+  Automated response workflow for ransomware detection.
+  Quarantines the malicious file and optionally disconnects
+  the network adapter if severity is critical.
+trigger:
+  alert_type_prefix: yara_Ransomware
+  min_severity: high
+steps:
+  - action: quarantine_file
+    target_from: alert.data.path
+    requires_approval: true
+  - action: snapshot_directory
+    target_from: alert.data.path
+    params:
+      depth: 1
+    requires_approval: true
+  - action: disconnect_network
+    target: "Ethernet"
+    requires_approval: true
+    condition: alert.severity == critical

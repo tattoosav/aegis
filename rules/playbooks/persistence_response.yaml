@@ -1,0 +1,17 @@
+id: persistence_response
+name: Persistence Mechanism Response
+description: >
+  Investigates and remediates persistence mechanisms found
+  in the Windows registry (Run keys, services, IFEO).
+trigger:
+  alert_type_prefix: registry_
+  min_severity: high
+steps:
+  - action: quarantine_file
+    target_from: alert.data.value_data
+    requires_approval: true
+  - action: remove_registry_value
+    target_from: alert.data.key_path
+    params:
+      value_name_from: alert.data.value_name
+    requires_approval: true
