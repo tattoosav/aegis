@@ -62,6 +62,14 @@ class AlertStatus(Enum):
     AUTO_SUPPRESSED = "auto_suppressed"
 
 
+class IncidentStatus(Enum):
+    """Incident lifecycle states."""
+
+    OPEN = "open"
+    CLOSED = "closed"
+    MERGED = "merged"
+
+
 @dataclass
 class AegisEvent:
     """A single event emitted by a sensor module.

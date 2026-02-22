@@ -98,6 +98,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "critical_fullscreen": True,
         "daily_digest": True,
         "auto_suppress_after_dismissals": 3,
+        "correlation": {
+            "enabled": True,
+            "time_window_seconds": 300,
+            "min_alerts_for_incident": 2,
+        },
     },
     "response": {
         "playbooks": {
@@ -121,6 +126,23 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "cloud": {
         "claude_api": {"enabled": False, "api_key": ""},
+    },
+    "whitelist": {
+        "enabled": True,
+        "auto_learn": True,
+        "entry_ttl_days": 0,
+        "min_observations": 3,
+    },
+    "canary": {
+        "enabled": True,
+        "file_types": [".txt", ".docx", ".xlsx", ".pdf"],
+        "files_per_directory": 2,
+        "verification_interval_seconds": 60,
+        "directories": [],
+    },
+    "scheduler": {
+        "enabled": True,
+        "tick_interval_seconds": 1.0,
     },
     "baseline": {
         "learning_period_days": 7,

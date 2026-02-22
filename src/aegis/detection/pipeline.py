@@ -72,6 +72,7 @@ class DetectionPipeline:
         graph_analyzer: Any = None,
         yara_scanner: Any = None,
         dns_analyzer: Any = None,
+        whitelist_manager: Any = None,
     ) -> None:
         self._rule_engine = rule_engine
         self._anomaly_detector = anomaly_detector
@@ -81,6 +82,7 @@ class DetectionPipeline:
         self._graph_analyzer = graph_analyzer
         self._yara_scanner = yara_scanner
         self._dns_analyzer = dns_analyzer
+        self._whitelist_manager = whitelist_manager
 
     # ------------------------------------------------------------------
     # Public API
@@ -92,6 +94,14 @@ class DetectionPipeline:
         Returns a list of :class:`Alert` objects (may be empty).
         """
         alerts: list[Alert] = []
+
+        # 0. Whitelist check — skip whitelisted events entirely
+        if self._whitelist_manager is not None:
+            try:
+                if self._whitelist_manager.check_event(event):
+                    return []
+            except Exception:
+                logger.debug("Whitelist check failed", exc_info=True)
 
         # 1. Rule engine — fast path for known signatures
         rule_alert = self._run_rule_engine(event)

@@ -427,3 +427,25 @@ class AegisDatabase:
         with self._lock:
             cursor = self._conn.execute("SELECT COUNT(*) FROM ioc_indicators")
             return cursor.fetchone()[0]
+
+    # --- Retention cleanup ---
+
+    def purge_old_events(self, retention_days: int) -> int:
+        """Delete events older than retention_days. Returns count deleted."""
+        cutoff = time.time() - (retention_days * 86400)
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM events WHERE timestamp < ?", (cutoff,),
+            )
+            self._conn.commit()
+            return cursor.rowcount
+
+    def purge_old_alerts(self, retention_days: int) -> int:
+        """Delete alerts older than retention_days. Returns count deleted."""
+        cutoff = time.time() - (retention_days * 86400)
+        with self._lock:
+            cursor = self._conn.execute(
+                "DELETE FROM alerts WHERE timestamp < ?", (cutoff,),
+            )
+            self._conn.commit()
+            return cursor.rowcount
