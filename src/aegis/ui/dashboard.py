@@ -7,7 +7,7 @@ showing live sensor/event counts.  All 8 pages are wired.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
@@ -221,11 +221,26 @@ class DashboardWindow(QMainWindow):
         )
 
     # ------------------------------------------------------------------
+    # Engine integration
+    # ------------------------------------------------------------------
+
+    def set_engine(self, engine: Any) -> None:
+        """Attach the EventEngine for live status updates."""
+        self._engine = engine
+
+    # ------------------------------------------------------------------
     # Auto-refresh
     # ------------------------------------------------------------------
 
     def _on_refresh_tick(self) -> None:
-        """Refresh the currently visible page."""
+        """Refresh the currently visible page and update status bar."""
+        if hasattr(self, "_engine") and self._engine:
+            sensor_count = len(getattr(self._engine, "_active_sensors", []))
+            self.update_status(
+                sensor_count=sensor_count,
+                event_count=self._engine.events_processed,
+                alert_count=self._engine.alerts_generated,
+            )
         current = self._stack.currentWidget()
         if hasattr(current, "refresh"):
             try:

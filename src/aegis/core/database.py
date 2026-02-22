@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -123,6 +124,7 @@ class AegisDatabase:
     def __init__(self, db_path: str | Path):
         self._path = Path(db_path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
         self._conn = sqlite3.connect(str(self._path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -132,40 +134,45 @@ class AegisDatabase:
 
     @property
     def journal_mode(self) -> str:
-        cursor = self._conn.execute("PRAGMA journal_mode")
-        return cursor.fetchone()[0]
+        with self._lock:
+            cursor = self._conn.execute("PRAGMA journal_mode")
+            return cursor.fetchone()[0]
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     def list_tables(self) -> list[str]:
-        cursor = self._conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-        )
-        return [row[0] for row in cursor.fetchall()]
+        with self._lock:
+            cursor = self._conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            )
+            return [row[0] for row in cursor.fetchall()]
 
     # --- Events ---
 
     def insert_event(self, event: AegisEvent) -> None:
-        self._conn.execute(
-            "INSERT INTO events (event_id, timestamp, sensor, event_type, severity, data) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                event.event_id,
-                event.timestamp,
-                event.sensor.value,
-                event.event_type,
-                event.severity.value,
-                json.dumps(event.data),
-            ),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO events (event_id, timestamp, sensor, event_type, severity, data) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    event.event_id,
+                    event.timestamp,
+                    event.sensor.value,
+                    event.event_type,
+                    event.severity.value,
+                    json.dumps(event.data),
+                ),
+            )
+            self._conn.commit()
 
     def get_event(self, event_id: str) -> AegisEvent | None:
-        cursor = self._conn.execute(
-            "SELECT * FROM events WHERE event_id = ?", (event_id,)
-        )
-        row = cursor.fetchone()
+        with self._lock:
+            cursor = self._conn.execute(
+                "SELECT * FROM events WHERE event_id = ?", (event_id,)
+            )
+            row = cursor.fetchone()
         if row is None:
             return None
         return self._row_to_event(row)
@@ -186,17 +193,19 @@ class AegisDatabase:
             params.append(since)
         query += " ORDER BY timestamp DESC LIMIT ?"
         params.append(limit)
-        cursor = self._conn.execute(query, params)
-        return [self._row_to_event(row) for row in cursor.fetchall()]
+        with self._lock:
+            cursor = self._conn.execute(query, params)
+            return [self._row_to_event(row) for row in cursor.fetchall()]
 
     def event_count(self, sensor: SensorType | None = None) -> int:
-        if sensor is not None:
-            cursor = self._conn.execute(
-                "SELECT COUNT(*) FROM events WHERE sensor = ?", (sensor.value,)
-            )
-        else:
-            cursor = self._conn.execute("SELECT COUNT(*) FROM events")
-        return cursor.fetchone()[0]
+        with self._lock:
+            if sensor is not None:
+                cursor = self._conn.execute(
+                    "SELECT COUNT(*) FROM events WHERE sensor = ?", (sensor.value,)
+                )
+            else:
+                cursor = self._conn.execute("SELECT COUNT(*) FROM events")
+            return cursor.fetchone()[0]
 
     def _row_to_event(self, row: sqlite3.Row) -> AegisEvent:
         return AegisEvent(
@@ -211,37 +220,39 @@ class AegisDatabase:
     # --- Alerts ---
 
     def insert_alert(self, alert: Alert) -> None:
-        self._conn.execute(
-            "INSERT INTO alerts "
-            "(alert_id, event_id, timestamp, sensor, alert_type, severity, "
-            "title, description, confidence, status, data, mitre_ids, "
-            "recommended_actions, priority_score, dismiss_count) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                alert.alert_id,
-                alert.event_id,
-                alert.timestamp,
-                alert.sensor.value,
-                alert.alert_type,
-                alert.severity.value,
-                alert.title,
-                alert.description,
-                alert.confidence,
-                alert.status.value,
-                json.dumps(alert.data),
-                json.dumps(alert.mitre_ids),
-                json.dumps(alert.recommended_actions),
-                alert.priority_score,
-                alert.dismiss_count,
-            ),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO alerts "
+                "(alert_id, event_id, timestamp, sensor, alert_type, severity, "
+                "title, description, confidence, status, data, mitre_ids, "
+                "recommended_actions, priority_score, dismiss_count) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    alert.alert_id,
+                    alert.event_id,
+                    alert.timestamp,
+                    alert.sensor.value,
+                    alert.alert_type,
+                    alert.severity.value,
+                    alert.title,
+                    alert.description,
+                    alert.confidence,
+                    alert.status.value,
+                    json.dumps(alert.data),
+                    json.dumps(alert.mitre_ids),
+                    json.dumps(alert.recommended_actions),
+                    alert.priority_score,
+                    alert.dismiss_count,
+                ),
+            )
+            self._conn.commit()
 
     def get_alert(self, alert_id: str) -> Alert | None:
-        cursor = self._conn.execute(
-            "SELECT * FROM alerts WHERE alert_id = ?", (alert_id,)
-        )
-        row = cursor.fetchone()
+        with self._lock:
+            cursor = self._conn.execute(
+                "SELECT * FROM alerts WHERE alert_id = ?", (alert_id,)
+            )
+            row = cursor.fetchone()
         if row is None:
             return None
         return self._row_to_alert(row)
@@ -262,24 +273,27 @@ class AegisDatabase:
             params.append(severity.value)
         query += " ORDER BY timestamp DESC LIMIT ?"
         params.append(limit)
-        cursor = self._conn.execute(query, params)
-        return [self._row_to_alert(row) for row in cursor.fetchall()]
+        with self._lock:
+            cursor = self._conn.execute(query, params)
+            return [self._row_to_alert(row) for row in cursor.fetchall()]
 
     def update_alert_status(self, alert_id: str, status: AlertStatus) -> None:
-        self._conn.execute(
-            "UPDATE alerts SET status = ? WHERE alert_id = ?",
-            (status.value, alert_id),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "UPDATE alerts SET status = ? WHERE alert_id = ?",
+                (status.value, alert_id),
+            )
+            self._conn.commit()
 
     def alert_count(self, severity: Severity | None = None) -> int:
-        if severity is not None:
-            cursor = self._conn.execute(
-                "SELECT COUNT(*) FROM alerts WHERE severity = ?", (severity.value,)
-            )
-        else:
-            cursor = self._conn.execute("SELECT COUNT(*) FROM alerts")
-        return cursor.fetchone()[0]
+        with self._lock:
+            if severity is not None:
+                cursor = self._conn.execute(
+                    "SELECT COUNT(*) FROM alerts WHERE severity = ?", (severity.value,)
+                )
+            else:
+                cursor = self._conn.execute("SELECT COUNT(*) FROM alerts")
+            return cursor.fetchone()[0]
 
     def _row_to_alert(self, row: sqlite3.Row) -> Alert:
         return Alert(
@@ -302,27 +316,29 @@ class AegisDatabase:
     # --- Audit Log ---
 
     def audit(self, component: str, action: str, detail: str = "") -> None:
-        self._conn.execute(
-            "INSERT INTO audit_log (timestamp, component, action, detail) "
-            "VALUES (?, ?, ?, ?)",
-            (time.time(), component, action, detail),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO audit_log (timestamp, component, action, detail) "
+                "VALUES (?, ?, ?, ?)",
+                (time.time(), component, action, detail),
+            )
+            self._conn.commit()
 
     def get_audit_log(self, limit: int = 50) -> list[dict[str, Any]]:
-        cursor = self._conn.execute(
-            "SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT ?", (limit,)
-        )
-        return [
-            {
-                "id": row["id"],
-                "timestamp": row["timestamp"],
-                "component": row["component"],
-                "action": row["action"],
-                "detail": row["detail"],
-            }
-            for row in cursor.fetchall()
-        ]
+        with self._lock:
+            cursor = self._conn.execute(
+                "SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT ?", (limit,)
+            )
+            return [
+                {
+                    "id": row["id"],
+                    "timestamp": row["timestamp"],
+                    "component": row["component"],
+                    "action": row["action"],
+                    "detail": row["detail"],
+                }
+                for row in cursor.fetchall()
+            ]
 
     # --- IOC Indicators ---
 
@@ -336,33 +352,35 @@ class AegisDatabase:
     ) -> None:
         """Insert or update an IOC indicator."""
         now = time.time()
-        self._conn.execute(
-            "INSERT INTO ioc_indicators "
-            "(ioc_type, value, source, severity, first_seen, last_updated, metadata) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(ioc_type, value) DO UPDATE SET "
-            "severity = excluded.severity, "
-            "last_updated = excluded.last_updated, "
-            "metadata = excluded.metadata",
-            (
-                ioc_type,
-                value,
-                source,
-                severity,
-                now,
-                now,
-                json.dumps(metadata or {}),
-            ),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO ioc_indicators "
+                "(ioc_type, value, source, severity, first_seen, last_updated, metadata) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(ioc_type, value) DO UPDATE SET "
+                "severity = excluded.severity, "
+                "last_updated = excluded.last_updated, "
+                "metadata = excluded.metadata",
+                (
+                    ioc_type,
+                    value,
+                    source,
+                    severity,
+                    now,
+                    now,
+                    json.dumps(metadata or {}),
+                ),
+            )
+            self._conn.commit()
 
     def lookup_ioc(self, ioc_type: str, value: str) -> dict[str, Any] | None:
         """Look up a single IOC by type and value."""
-        cursor = self._conn.execute(
-            "SELECT * FROM ioc_indicators WHERE ioc_type = ? AND value = ?",
-            (ioc_type, value),
-        )
-        row = cursor.fetchone()
+        with self._lock:
+            cursor = self._conn.execute(
+                "SELECT * FROM ioc_indicators WHERE ioc_type = ? AND value = ?",
+                (ioc_type, value),
+            )
+            row = cursor.fetchone()
         if row is None:
             return None
         return {
@@ -378,31 +396,34 @@ class AegisDatabase:
 
     def lookup_ioc_by_value(self, value: str) -> list[dict[str, Any]]:
         """Look up all IOC entries matching a value (any type)."""
-        cursor = self._conn.execute(
-            "SELECT * FROM ioc_indicators WHERE value = ?", (value,)
-        )
-        return [
-            {
-                "id": row["id"],
-                "ioc_type": row["ioc_type"],
-                "value": row["value"],
-                "source": row["source"],
-                "severity": row["severity"],
-                "first_seen": row["first_seen"],
-                "last_updated": row["last_updated"],
-                "metadata": json.loads(row["metadata"]),
-            }
-            for row in cursor.fetchall()
-        ]
+        with self._lock:
+            cursor = self._conn.execute(
+                "SELECT * FROM ioc_indicators WHERE value = ?", (value,)
+            )
+            return [
+                {
+                    "id": row["id"],
+                    "ioc_type": row["ioc_type"],
+                    "value": row["value"],
+                    "source": row["source"],
+                    "severity": row["severity"],
+                    "first_seen": row["first_seen"],
+                    "last_updated": row["last_updated"],
+                    "metadata": json.loads(row["metadata"]),
+                }
+                for row in cursor.fetchall()
+            ]
 
     def get_all_ioc_values(self) -> list[str]:
         """Return all IOC values (for Bloom filter rebuild)."""
-        cursor = self._conn.execute(
-            "SELECT DISTINCT value FROM ioc_indicators"
-        )
-        return [row[0] for row in cursor.fetchall()]
+        with self._lock:
+            cursor = self._conn.execute(
+                "SELECT DISTINCT value FROM ioc_indicators"
+            )
+            return [row[0] for row in cursor.fetchall()]
 
     def ioc_count(self) -> int:
         """Count total IOC indicators."""
-        cursor = self._conn.execute("SELECT COUNT(*) FROM ioc_indicators")
-        return cursor.fetchone()[0]
+        with self._lock:
+            cursor = self._conn.execute("SELECT COUNT(*) FROM ioc_indicators")
+            return cursor.fetchone()[0]

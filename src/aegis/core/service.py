@@ -23,7 +23,7 @@ CHECK_INTERVAL = 5
 _CHILD_PROCESSES: dict[str, str] = {
     "event_engine": "aegis.core.engine",
     "network_sensor": "aegis.sensors.network",
-    "process_sensor": "aegis.sensors.process_monitor",
+    "process_sensor": "aegis.sensors.process",
     "file_sensor": "aegis.sensors.file_integrity",
     "eventlog_sensor": "aegis.sensors.eventlog",
 }

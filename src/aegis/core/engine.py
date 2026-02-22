@@ -61,6 +61,7 @@ class EventEngine:
         self._detection_pipeline = detection_pipeline
         self._alert_manager = alert_manager
         self._forensic_logger = forensic_logger
+        self._notification_manager: Any = None
         self._bus: EventBus | None = None
         self._subscriber: EventSubscriber | None = None
         self._db: AegisDatabase | None = None
@@ -181,6 +182,13 @@ class EventEngine:
                     )
                 except Exception as exc:
                     logger.error("Forensic log error: %s", exc)
+
+            # 4c. Route to notification channel
+            if self._notification_manager:
+                try:
+                    self._notification_manager.notify(processed)
+                except Exception as exc:
+                    logger.error("Notification failed: %s", exc)
 
             with self._lock:
                 self._alerts_generated += 1

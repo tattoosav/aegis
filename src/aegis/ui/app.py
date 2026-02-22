@@ -47,6 +47,8 @@ class AegisApp:
         from aegis.ui.dashboard import DashboardWindow
 
         self._window = DashboardWindow(db=self._db)
+        if self._engine:
+            self._window.set_engine(self._engine)
 
         # System tray
         self._tray: Any = None

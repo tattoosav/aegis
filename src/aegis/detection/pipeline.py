@@ -119,11 +119,11 @@ class DetectionPipeline:
             top = matches[0]
             return self._make_alert(
                 event=event,
-                alert_type=f"rule_{top.name}",
+                alert_type=f"rule_{top.rule_id}",
                 title=top.description,
-                severity=Severity.from_string(top.severity),
+                severity=top.severity,
                 confidence=0.95,
-                mitre_ids=[top.mitre] if hasattr(top, "mitre") and top.mitre else [],
+                mitre_ids=top.mitre_ids,
                 engine="rule_engine",
             )
         except Exception:
@@ -230,11 +230,9 @@ class DetectionPipeline:
     ) -> Alert | None:
         """Classify a URL from the event."""
         try:
-            result = self._url_classifier.predict(url)
-            label = result.get("label", "benign")
+            label, confidence = self._url_classifier.predict(url)
             if label == "benign":
                 return None
-            confidence = result.get("confidence", 0.7)
             severity = Severity.HIGH if label == "malicious" else Severity.MEDIUM
             return self._make_alert(
                 event=event,
@@ -271,15 +269,15 @@ class DetectionPipeline:
     def _run_lstm_analyzer(self, event: AegisEvent) -> Alert | None:
         """Check for temporal patterns (beaconing, brute force)."""
         try:
-            result = self._lstm_analyzer.detect_beaconing([event])
-            if result is None:
+            is_beaconing, details = self._lstm_analyzer.detect_beaconing([event])
+            if not is_beaconing:
                 return None
             return self._make_alert(
                 event=event,
                 alert_type="temporal_pattern",
-                title=result.get("description", "Temporal pattern detected"),
+                title=details.get("description", "Beaconing pattern detected"),
                 severity=Severity.HIGH,
-                confidence=result.get("confidence", 0.75),
+                confidence=details.get("confidence", 0.75),
                 engine="lstm_analyzer",
             )
         except Exception:

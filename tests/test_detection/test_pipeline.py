@@ -35,10 +35,14 @@ def _make_event(**overrides) -> AegisEvent:
 
 @dataclass
 class _FakeRule:
-    name: str = "test_rule"
+    rule_id: str = "test_rule"
     description: str = "Test rule matched"
-    severity: str = "high"
-    mitre: str = "T1071"
+    severity: Severity = Severity.HIGH
+    mitre_ids: list = None
+
+    def __post_init__(self):
+        if self.mitre_ids is None:
+            self.mitre_ids = ["T1071"]
 
 
 @dataclass
@@ -106,7 +110,7 @@ class TestRuleEngineStage:
 
     def test_rule_alert_includes_mitre_id(self) -> None:
         engine = MagicMock()
-        engine.evaluate.return_value = [_FakeRule(mitre="T1059")]
+        engine.evaluate.return_value = [_FakeRule(mitre_ids=["T1059"])]
         pipeline = DetectionPipeline(rule_engine=engine)
 
         alerts = pipeline.process_event(_make_event())
@@ -200,7 +204,7 @@ class TestURLClassifier:
 
     def test_malicious_url_alert(self) -> None:
         uc = MagicMock()
-        uc.predict.return_value = {"label": "malicious", "confidence": 0.9}
+        uc.predict.return_value = ("malicious", 0.9)
         pipeline = DetectionPipeline(url_classifier=uc)
 
         event = _make_event(data={"url": "http://evil.com/payload.exe"})
@@ -211,7 +215,7 @@ class TestURLClassifier:
 
     def test_benign_url_no_alert(self) -> None:
         uc = MagicMock()
-        uc.predict.return_value = {"label": "benign", "confidence": 0.95}
+        uc.predict.return_value = ("benign", 0.95)
         pipeline = DetectionPipeline(url_classifier=uc)
 
         event = _make_event(data={"url": "https://google.com"})
@@ -260,10 +264,10 @@ class TestLSTMAnalyzer:
 
     def test_beaconing_detected(self) -> None:
         lstm = MagicMock()
-        lstm.detect_beaconing.return_value = {
+        lstm.detect_beaconing.return_value = (True, {
             "description": "C2 beaconing detected",
             "confidence": 0.88,
-        }
+        })
         pipeline = DetectionPipeline(lstm_analyzer=lstm)
 
         alerts = pipeline.process_event(_make_event())
@@ -272,7 +276,7 @@ class TestLSTMAnalyzer:
 
     def test_no_pattern_no_alert(self) -> None:
         lstm = MagicMock()
-        lstm.detect_beaconing.return_value = None
+        lstm.detect_beaconing.return_value = (False, {})
         pipeline = DetectionPipeline(lstm_analyzer=lstm)
 
         assert pipeline.process_event(_make_event()) == []

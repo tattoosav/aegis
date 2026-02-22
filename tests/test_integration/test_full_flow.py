@@ -28,10 +28,10 @@ class TestFullFlow:
         # Mock rule engine that always matches
         rule_engine = MagicMock()
         rule_match = MagicMock()
-        rule_match.name = "suspicious_cmd"
+        rule_match.rule_id = "suspicious_cmd"
         rule_match.description = "Suspicious command detected"
-        rule_match.severity = "high"
-        rule_match.mitre = "T1059"
+        rule_match.severity = Severity.HIGH
+        rule_match.mitre_ids = ["T1059"]
         rule_engine.evaluate.return_value = [rule_match]
 
         pipeline = DetectionPipeline(rule_engine=rule_engine)
@@ -79,10 +79,10 @@ class TestFullFlow:
         """Same alert type within 60s window is deduplicated."""
         rule_engine = MagicMock()
         rule_match = MagicMock()
-        rule_match.name = "dup_rule"
+        rule_match.rule_id = "dup_rule"
         rule_match.description = "Duplicate test"
-        rule_match.severity = "medium"
-        rule_match.mitre = ""
+        rule_match.severity = Severity.MEDIUM
+        rule_match.mitre_ids = []
         rule_engine.evaluate.return_value = [rule_match]
 
         pipeline = DetectionPipeline(rule_engine=rule_engine)
@@ -150,10 +150,10 @@ class TestFullFlow:
         """Rule + graph engines can each produce alerts for same event."""
         rule_engine = MagicMock()
         rule_match = MagicMock()
-        rule_match.name = "test_rule"
+        rule_match.rule_id = "test_rule"
         rule_match.description = "Test"
-        rule_match.severity = "medium"
-        rule_match.mitre = ""
+        rule_match.severity = Severity.MEDIUM
+        rule_match.mitre_ids = []
         rule_engine.evaluate.return_value = [rule_match]
 
         # Graph analyzer that produces a chain match

@@ -30,6 +30,12 @@ logger = logging.getLogger(__name__)
 # Deduplication window in seconds
 DEDUP_WINDOW_SECONDS = 60.0
 
+# Maximum alert history size before eviction
+MAX_HISTORY_SIZE = 10_000
+
+# Dedup tracker entries older than this are pruned
+DEDUP_PRUNE_SECONDS = 300.0
+
 # Severity weight mapping
 SEVERITY_WEIGHTS: dict[Severity, float] = {
     Severity.CRITICAL: 1.0,
@@ -107,6 +113,14 @@ class AlertManager:
             key = self._dedup_key(alert)
             now = time.time()
 
+            # Prune stale dedup tracker entries
+            expired = [
+                k for k, (t, _) in self._dedup_tracker.items()
+                if now - t > DEDUP_PRUNE_SECONDS
+            ]
+            for k in expired:
+                del self._dedup_tracker[k]
+
             # Deduplication check
             if key in self._dedup_tracker:
                 last_time, count = self._dedup_tracker[key]
@@ -121,6 +135,10 @@ class AlertManager:
             # Not a duplicate — process
             self._dedup_tracker[key] = (now, 1)
             self._alert_history.append(alert)
+
+            # Evict oldest when history exceeds max
+            if len(self._alert_history) > MAX_HISTORY_SIZE:
+                self._alert_history = self._alert_history[-MAX_HISTORY_SIZE:]
 
             logger.info(
                 f"Alert processed: [{alert.severity.value}] {alert.title} "
