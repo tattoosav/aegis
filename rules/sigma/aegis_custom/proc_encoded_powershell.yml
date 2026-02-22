@@ -1,0 +1,21 @@
+title: Encoded PowerShell Command Execution
+id: ae01-sigma-encoded-ps
+status: stable
+level: high
+description: Detects execution of PowerShell with encoded command arguments
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    selection:
+        CommandLine|contains:
+            - "-EncodedCommand"
+            - "-enc "
+            - "-e "
+        Image|endswith:
+            - "\\powershell.exe"
+            - "\\pwsh.exe"
+    condition: selection
+tags:
+    - attack.execution
+    - attack.t1059.001

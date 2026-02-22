@@ -56,6 +56,14 @@ def _check_condition(condition: dict[str, Any], data: dict[str, Any]) -> bool:
     elif op == "contains_any":
         actual_str = str(actual).lower()
         return any(str(v).lower() in actual_str for v in expected)
+    elif op == "startswith":
+        if isinstance(expected, list):
+            return any(str(actual).lower().startswith(str(v).lower()) for v in expected)
+        return str(actual).lower().startswith(str(expected).lower())
+    elif op == "endswith":
+        if isinstance(expected, list):
+            return any(str(actual).lower().endswith(str(v).lower()) for v in expected)
+        return str(actual).lower().endswith(str(expected).lower())
     elif op == "regex":
         import re
         return bool(re.search(str(expected), str(actual)))
@@ -169,6 +177,33 @@ class RuleEngine:
             return self.load_rules_file(builtin_path)
         logger.warning(f"Built-in rules not found at {builtin_path}")
         return 0
+
+    def load_sigma_rules(self, directory: str | Path) -> int:
+        """Load Sigma rules by converting them to BehavioralRules.
+
+        Returns count of successfully converted rules.
+        """
+        try:
+            from aegis.detection.sigma_converter import SigmaConverter
+        except ImportError:
+            logger.warning("Sigma converter not available")
+            return 0
+
+        converter = SigmaConverter()
+        results = converter.convert_directory(directory)
+        count = 0
+        for result in results:
+            if result.success and result.rule is not None:
+                self._rules.append(result.rule)
+                count += 1
+            elif result.error:
+                logger.debug(
+                    "Sigma rule conversion failed (%s): %s",
+                    result.source_file,
+                    result.error,
+                )
+        logger.info("Loaded %d Sigma rules from %s", count, directory)
+        return count
 
     def evaluate(self, event: AegisEvent) -> list[BehavioralRule]:
         """Evaluate an event against all rules. Returns matching rules."""

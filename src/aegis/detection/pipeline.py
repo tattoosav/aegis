@@ -70,6 +70,8 @@ class DetectionPipeline:
         lstm_analyzer: Any = None,
         url_classifier: Any = None,
         graph_analyzer: Any = None,
+        yara_scanner: Any = None,
+        dns_analyzer: Any = None,
     ) -> None:
         self._rule_engine = rule_engine
         self._anomaly_detector = anomaly_detector
@@ -77,6 +79,8 @@ class DetectionPipeline:
         self._lstm_analyzer = lstm_analyzer
         self._url_classifier = url_classifier
         self._graph_analyzer = graph_analyzer
+        self._yara_scanner = yara_scanner
+        self._dns_analyzer = dns_analyzer
 
     # ------------------------------------------------------------------
     # Public API
@@ -93,6 +97,10 @@ class DetectionPipeline:
         rule_alert = self._run_rule_engine(event)
         if rule_alert is not None:
             alerts.append(rule_alert)
+
+        # 1b. YARA scanner — file-based malware signatures
+        yara_alerts = self._run_yara_scanner(event)
+        alerts.extend(yara_alerts)
 
         # 2. Statistical cascade (Isolation Forest → Autoencoder)
         cascade_alert = self._run_statistical_cascade(event)
@@ -203,8 +211,14 @@ class DetectionPipeline:
     # ------------------------------------------------------------------
 
     def _run_parallel_engines(self, event: AegisEvent) -> list[Alert]:
-        """Run LSTM, URL Classifier, and Graph Analyzer."""
+        """Run LSTM, URL Classifier, Graph Analyzer, and DNS Analyzer."""
         alerts: list[Alert] = []
+
+        # DNS Analyzer — for dns_query events
+        if event.event_type == "dns_query" and self._dns_analyzer is not None:
+            alert = self._run_dns_analyzer(event)
+            if alert is not None:
+                alerts.append(alert)
 
         # URL Classifier — only for events with URL data
         url = event.data.get("url") or event.data.get("domain")
@@ -282,6 +296,98 @@ class DetectionPipeline:
             )
         except Exception:
             logger.exception("LSTM analyzer failed for event %s", event.event_id)
+            return None
+
+    # ------------------------------------------------------------------
+    # YARA scanner
+    # ------------------------------------------------------------------
+
+    def _run_yara_scanner(self, event: AegisEvent) -> list[Alert]:
+        """Scan files from FIM events against YARA rules."""
+        if self._yara_scanner is None:
+            return []
+        if event.event_type != "file_change":
+            return []
+        change_type = event.data.get("change_type", "")
+        if change_type not in ("created", "modified"):
+            return []
+        file_path = event.data.get("path", "")
+        if not file_path:
+            return []
+
+        alerts: list[Alert] = []
+        try:
+            matches = self._yara_scanner.scan_file(file_path)
+            for match in matches:
+                severity_str = match.meta.get("severity", "high")
+                try:
+                    severity = Severity.from_string(severity_str)
+                except (ValueError, KeyError):
+                    severity = Severity.HIGH
+                mitre_str = match.meta.get("mitre", "")
+                mitre_ids = [mitre_str] if mitre_str else []
+                alerts.append(self._make_alert(
+                    event=event,
+                    alert_type=f"yara_{match.rule_name}",
+                    title=f"YARA match: {match.rule_name}",
+                    severity=severity,
+                    confidence=0.9,
+                    mitre_ids=mitre_ids,
+                    engine="yara_scanner",
+                ))
+        except Exception:
+            logger.exception("YARA scanner failed for event %s", event.event_id)
+        return alerts
+
+    # ------------------------------------------------------------------
+    # DNS analyzer
+    # ------------------------------------------------------------------
+
+    def _run_dns_analyzer(self, event: AegisEvent) -> Alert | None:
+        """Analyze DNS queries for tunneling, DGA, and DoH evasion."""
+        try:
+            query_name = event.data.get("query_name", "")
+            if not query_name:
+                return None
+            result = self._dns_analyzer.analyze_query(
+                query_name,
+                process_name=event.data.get("process_name", ""),
+                remote_addr=event.data.get("remote_addr", ""),
+                remote_port=event.data.get("remote_port", 0),
+                query_type=event.data.get("query_type", ""),
+            )
+            if result is None or not result.is_suspicious:
+                return None
+
+            _THREAT_SEVERITY = {
+                "tunneling": Severity.HIGH,
+                "dga": Severity.HIGH,
+                "doh_evasion": Severity.MEDIUM,
+                "known_malicious": Severity.CRITICAL,
+                "suspicious_tld": Severity.LOW,
+            }
+            severity = _THREAT_SEVERITY.get(result.threat_type, Severity.MEDIUM)
+
+            _THREAT_MITRE = {
+                "tunneling": ["T1071.004", "T1048.003"],
+                "dga": ["T1568.002"],
+                "doh_evasion": ["T1071.004"],
+                "known_malicious": ["T1071.004"],
+                "suspicious_tld": [],
+            }
+            mitre_ids = _THREAT_MITRE.get(result.threat_type, [])
+
+            return self._make_alert(
+                event=event,
+                alert_type=f"dns_{result.threat_type}",
+                title=f"DNS threat: {result.threat_type} — {query_name[:60]}",
+                severity=severity,
+                confidence=result.confidence,
+                mitre_ids=mitre_ids,
+                engine="dns_analyzer",
+            )
+        except Exception:
+            logger.exception("DNS analyzer failed for event %s", event.event_id)
             return None
 
     # ------------------------------------------------------------------

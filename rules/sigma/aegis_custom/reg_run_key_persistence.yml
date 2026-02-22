@@ -1,0 +1,17 @@
+title: Registry Run Key Persistence
+id: ae03-sigma-run-key
+status: stable
+level: high
+description: Detects modification of registry Run keys used for persistence
+logsource:
+    product: windows
+    category: registry_event
+detection:
+    selection:
+        TargetObject|contains:
+            - "\\CurrentVersion\\Run"
+            - "\\CurrentVersion\\RunOnce"
+    condition: selection
+tags:
+    - attack.persistence
+    - attack.t1547.001

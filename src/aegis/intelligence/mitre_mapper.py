@@ -96,6 +96,47 @@ _FALLBACK_TECHNIQUES: dict[str, MITRETechnique] = {
         "T1055.001", "DLL Injection", "defense-evasion",
         "Injecting a DLL into another process.",
     ),
+    # Phase 15: Registry, DNS, and additional techniques
+    "T1547.004": MITRETechnique(
+        "T1547.004", "Winlogon Helper DLL", "persistence",
+        "Modifying Winlogon registry entries for persistence.",
+    ),
+    "T1546.001": MITRETechnique(
+        "T1546.001", "Change Default File Association", "persistence",
+        "Changing file associations for persistence.",
+    ),
+    "T1546.012": MITRETechnique(
+        "T1546.012", "Image File Execution Options Injection", "persistence",
+        "Setting IFEO debugger key to hijack process execution.",
+    ),
+    "T1543.003": MITRETechnique(
+        "T1543.003", "Windows Service", "persistence",
+        "Creating or modifying Windows services for persistence.",
+    ),
+    "T1071.004": MITRETechnique(
+        "T1071.004", "Application Layer Protocol: DNS", "command-and-control",
+        "Using DNS for command and control communication.",
+    ),
+    "T1048.003": MITRETechnique(
+        "T1048.003", "Exfiltration Over Unencrypted Non-C2 Protocol", "exfiltration",
+        "Exfiltrating data over DNS or other non-C2 protocols.",
+    ),
+    "T1568.002": MITRETechnique(
+        "T1568.002", "Domain Generation Algorithms", "command-and-control",
+        "Using algorithmically generated domains for C2.",
+    ),
+    "T1547.005": MITRETechnique(
+        "T1547.005", "Security Support Provider", "persistence",
+        "Abusing SSP DLLs for persistence and credential access.",
+    ),
+    "T1505.003": MITRETechnique(
+        "T1505.003", "Web Shell", "persistence",
+        "Installing web shells on servers for persistence.",
+    ),
+    "T1140": MITRETechnique(
+        "T1140", "Deobfuscate/Decode Files or Information", "defense-evasion",
+        "Using utilities to deobfuscate or decode data.",
+    ),
 }
 
 

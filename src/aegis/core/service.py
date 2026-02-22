@@ -26,6 +26,7 @@ _CHILD_PROCESSES: dict[str, str] = {
     "process_sensor": "aegis.sensors.process",
     "file_sensor": "aegis.sensors.file_integrity",
     "eventlog_sensor": "aegis.sensors.eventlog",
+    "registry_sensor": "aegis.sensors.registry",
 }
 
 

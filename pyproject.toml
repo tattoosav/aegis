@@ -37,6 +37,9 @@ ml = [
 network = [
     "scapy>=2.5",
 ]
+detection = [
+    "pySigma>=0.11",
+]
 windows = [
     "pywin32>=306; sys_platform == 'win32'",
     "WMI>=1.5; sys_platform == 'win32'",

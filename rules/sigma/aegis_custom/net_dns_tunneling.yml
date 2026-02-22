@@ -1,0 +1,15 @@
+title: Possible DNS Tunneling via Long Subdomain
+id: ae04-sigma-dns-tunnel
+status: stable
+level: high
+description: Detects DNS queries with abnormally long subdomains indicating possible tunneling
+logsource:
+    product: windows
+    category: dns_query
+detection:
+    selection:
+        QueryName|re: "^[a-zA-Z0-9]{30,}\\."
+    condition: selection
+tags:
+    - attack.command_and_control
+    - attack.t1071.004

@@ -123,3 +123,71 @@ rules:
       - field: exe
         op: contains_any
         value: ["\\Temp\\", "\\tmp\\", "\\AppData\\Local\\Temp\\"]
+
+  # ---- Registry monitoring rules (Phase 15) ----
+
+  - id: registry_run_key_created
+    description: "New entry added to Run/RunOnce persistence key"
+    severity: high
+    mitre: [T1547.001]
+    sensor: registry
+    event_type: registry_change
+    conditions:
+      - field: change_type
+        op: eq
+        value: created
+      - field: category
+        op: eq
+        value: persistence
+
+  - id: registry_ifeo_debugger
+    description: "Image File Execution Options debugger set (possible hijack)"
+    severity: critical
+    mitre: [T1546.012]
+    sensor: registry
+    event_type: registry_change
+    conditions:
+      - field: category
+        op: eq
+        value: defense_evasion
+      - field: value_name
+        op: contains
+        value: Debugger
+
+  - id: registry_lsa_modification
+    description: "LSA security package modified (possible credential theft)"
+    severity: critical
+    mitre: [T1547.005]
+    sensor: registry
+    event_type: registry_change
+    conditions:
+      - field: category
+        op: eq
+        value: credential_access
+
+  # ---- DNS monitoring rules (Phase 15) ----
+
+  - id: dns_high_query_rate
+    description: "High DNS query rate to single domain (possible tunneling)"
+    severity: high
+    mitre: [T1071.004]
+    sensor: network
+    event_type: dns_query
+    conditions:
+      - field: queries_per_minute
+        op: gt
+        value: 100
+
+  - id: dns_txt_record_abuse
+    description: "TXT record query with high-entropy data (possible exfiltration)"
+    severity: high
+    mitre: [T1048.003]
+    sensor: network
+    event_type: dns_query
+    conditions:
+      - field: query_type
+        op: eq
+        value: TXT
+      - field: subdomain_entropy
+        op: gt
+        value: 4.0

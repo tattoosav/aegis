@@ -1,0 +1,25 @@
+title: Suspicious Process Spawned by Office Application
+id: ae02-sigma-office-child
+status: stable
+level: high
+description: Detects suspicious child processes spawned by Microsoft Office applications
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    selection:
+        ParentImage|endswith:
+            - "\\winword.exe"
+            - "\\excel.exe"
+            - "\\powerpnt.exe"
+            - "\\outlook.exe"
+        Image|endswith:
+            - "\\cmd.exe"
+            - "\\powershell.exe"
+            - "\\wscript.exe"
+            - "\\cscript.exe"
+            - "\\mshta.exe"
+    condition: selection
+tags:
+    - attack.execution
+    - attack.t1204.002

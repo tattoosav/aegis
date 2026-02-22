@@ -49,9 +49,29 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "clipboard": {
             "enabled": False,
         },
+        "registry": {
+            "enabled": True,
+            "scan_interval_seconds": 10,
+        },
     },
     "detection": {
         "rule_engine": {"enabled": True},
+        "yara_scanner": {
+            "enabled": True,
+            "rules_dir": "rules/yara",
+            "scan_timeout_seconds": 30,
+            "max_file_size_mb": 50,
+        },
+        "sigma_rules": {
+            "enabled": True,
+            "rules_dirs": ["rules/sigma"],
+        },
+        "dns_analyzer": {
+            "enabled": True,
+            "tunneling_entropy_threshold": 3.5,
+            "dga_entropy_threshold": 3.8,
+            "doh_detection": True,
+        },
         "isolation_forest": {
             "enabled": True,
             "anomaly_threshold": 0.6,
