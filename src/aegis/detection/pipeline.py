@@ -246,9 +246,18 @@ class DetectionPipeline:
         "connection",
     }
 
+    # Event types that should trigger fileless attack detection.
+    _FILELESS_EVENT_TYPES: set[str] = {
+        "etw.powershell_scriptblock",
+        "etw.dotnet_assembly_load",
+        "etw.wmi_activity",
+        "etw.amsi_scan",
+        "process_new",
+    }
+
     def _run_parallel_engines(self, event: AegisEvent) -> list[Alert]:
         """Run LSTM, URL Classifier, Graph Analyzer, DNS Analyzer,
-        Memory Forensics, and Encrypted Traffic."""
+        Memory Forensics, Encrypted Traffic, and Fileless Detector."""
         alerts: list[Alert] = []
 
         # DNS Analyzer — for dns_query events
@@ -287,6 +296,13 @@ class DetectionPipeline:
             and self._encrypted_traffic is not None
         ):
             alerts.extend(self._run_encrypted_traffic(event))
+
+        # Fileless Detector — PS obfuscation, .NET injection, WMI, LOLBins
+        if (
+            event.event_type in self._FILELESS_EVENT_TYPES
+            and self._fileless_detector is not None
+        ):
+            alerts.extend(self._run_fileless_detector(event))
 
         return alerts
 
@@ -467,6 +483,21 @@ class DetectionPipeline:
         except Exception:
             logger.exception(
                 "Encrypted traffic engine failed for event %s",
+                event.event_id,
+            )
+            return []
+
+    # ------------------------------------------------------------------
+    # Fileless detector
+    # ------------------------------------------------------------------
+
+    def _run_fileless_detector(self, event: AegisEvent) -> list[Alert]:
+        """Run fileless attack detector on applicable events."""
+        try:
+            return self._fileless_detector.analyze_event(event)
+        except Exception:
+            logger.exception(
+                "Fileless detector failed for event %s",
                 event.event_id,
             )
             return []
