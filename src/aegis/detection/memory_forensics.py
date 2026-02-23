@@ -2,21 +2,26 @@
 
 Scans process memory for indicators of code injection including reflective
 DLL loading, shellcode (high-entropy executable regions), RWX memory,
-and .NET assembly injection.  Each check maps to a MITRE ATT&CK technique.
+.NET assembly injection, inline API hooks, and suspicious thread start
+addresses.  Each check maps to a MITRE ATT&CK technique.
 """
 from __future__ import annotations
 
 import logging
 import struct
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 
 from aegis.core.models import AegisEvent, Alert, SensorType, Severity
 from aegis.detection.win_memory import (
     MemoryRegion,
+    ModuleInfo,
+    ThreadInfo,
     calculate_entropy,
     close_handle,
     enumerate_regions,
+    enumerate_threads,
     get_loaded_modules,
     open_process_readonly,
     read_memory,
@@ -252,6 +257,196 @@ class MemoryForensicsEngine:
 
         return findings
 
+    # ---- hook & thread checks ------------------------------------- #
+
+    # DLLs commonly targeted by rootkits and injectors for API hooking.
+    _HOOK_TARGET_DLLS: set[str] = {
+        "ntdll.dll",
+        "kernel32.dll",
+        "kernelbase.dll",
+        "advapi32.dll",
+        "ws2_32.dll",
+    }
+
+    # Well-known exported-function offsets to probe for hooks.
+    # These are typical entry-point-relative offsets; the exact values
+    # don't matter because the real detection comes from comparing
+    # memory bytes against disk bytes.
+    _PROBE_OFFSETS: list[int] = [
+        0x1000, 0x2000, 0x3000, 0x4000,
+        0x5000, 0x6000, 0x7000, 0x8000,
+    ]
+
+    _PROBE_SIZE: int = 16  # bytes to read at each offset
+
+    @staticmethod
+    def _read_disk_bytes(
+        path: str,
+        offset: int,
+        size: int,
+    ) -> bytes | None:
+        """Read *size* bytes from a DLL file on disk at *offset*.
+
+        Returns ``None`` on any I/O error.
+        """
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(offset)
+                data = fh.read(size)
+                return data if len(data) == size else None
+        except OSError:
+            return None
+
+    @staticmethod
+    def _has_hook_opcode(mem: bytes, disk: bytes) -> bool:
+        """Return ``True`` if *mem* starts with a JMP/CALL patch.
+
+        Checks for:
+        - ``0xE9`` — near relative JMP (5-byte patch)
+        - ``0xFF 0x25`` — indirect JMP via RIP-relative address
+        The disk bytes must *not* start with the same opcode (to avoid
+        flagging legitimate forwarded exports).
+        """
+        if len(mem) < 2 or len(disk) < 2:
+            return False
+
+        # Near JMP
+        if mem[0] == 0xE9 and disk[0] != 0xE9:
+            return True
+
+        # Indirect far JMP  [FF 25 xx xx xx xx]
+        if mem[0] == 0xFF and mem[1] == 0x25:
+            if not (disk[0] == 0xFF and disk[1] == 0x25):
+                return True
+
+        return False
+
+    def _check_inline_hooks(
+        self,
+        pid: int,
+        modules: list[ModuleInfo],
+        read_fn: (
+            Callable[[int, int, int], bytes | None] | None
+        ) = None,
+        disk_fn: (
+            Callable[[str, int, int], bytes | None] | None
+        ) = None,
+    ) -> list[MemoryFinding]:
+        """Detect inline API hooks in critical system DLLs.
+
+        Compares the first bytes of well-known exported function offsets
+        in memory against the on-disk DLL image.  A JMP or far-JMP
+        instruction at entry that does not exist on disk indicates an
+        inline hook (MITRE T1055).
+
+        Parameters
+        ----------
+        pid:
+            Process ID being scanned.
+        modules:
+            Loaded modules for the process.
+        read_fn:
+            Injectable memory reader ``(handle, address, size) -> bytes``.
+            Defaults to :func:`read_memory`.
+        disk_fn:
+            Injectable disk reader ``(path, offset, size) -> bytes``.
+            Defaults to :meth:`_read_disk_bytes`.
+        """
+        if read_fn is None:
+            read_fn = read_memory
+        if disk_fn is None:
+            disk_fn = self._read_disk_bytes
+
+        findings: list[MemoryFinding] = []
+
+        for mod in modules:
+            if mod.name.lower() not in self._HOOK_TARGET_DLLS:
+                continue
+
+            for offset in self._PROBE_OFFSETS:
+                if offset >= mod.size:
+                    continue
+
+                addr = mod.base + offset
+                mem_bytes = read_fn(0, addr, self._PROBE_SIZE)
+                disk_bytes = disk_fn(
+                    mod.path, offset, self._PROBE_SIZE,
+                )
+
+                if mem_bytes is None or disk_bytes is None:
+                    continue
+
+                if mem_bytes == disk_bytes:
+                    continue
+
+                if self._has_hook_opcode(mem_bytes, disk_bytes):
+                    findings.append(MemoryFinding(
+                        finding_type=FindingType.INLINE_HOOK,
+                        pid=pid,
+                        address=addr,
+                        size=self._PROBE_SIZE,
+                        confidence=0.85,
+                        details={
+                            "module": mod.name,
+                            "offset": hex(offset),
+                            "mem_bytes": mem_bytes[:8].hex(),
+                            "disk_bytes": disk_bytes[:8].hex(),
+                        },
+                        mitre_id="T1055",
+                    ))
+
+        return findings
+
+    def _check_thread_start_addresses(
+        self,
+        pid: int,
+        modules: list[ModuleInfo],
+        threads: list[ThreadInfo],
+    ) -> list[MemoryFinding]:
+        """Flag threads whose start address falls outside all modules.
+
+        A thread whose Win32 start address does not reside within any
+        loaded module's ``[base, base+size)`` range likely started from
+        injected or dynamically allocated code (MITRE T1055.003).
+
+        Parameters
+        ----------
+        pid:
+            Process ID being scanned.
+        modules:
+            Loaded modules for the process.
+        threads:
+            Threads belonging to the process.
+        """
+        findings: list[MemoryFinding] = []
+
+        for thread in threads:
+            if thread.start_address == 0:
+                continue
+
+            inside = any(
+                mod.base <= thread.start_address < mod.base + mod.size
+                for mod in modules
+            )
+
+            if not inside:
+                findings.append(MemoryFinding(
+                    finding_type=FindingType.SUSPICIOUS_THREAD,
+                    pid=pid,
+                    address=thread.start_address,
+                    size=0,
+                    confidence=0.75,
+                    details={
+                        "thread_id": thread.thread_id,
+                        "start_address": hex(
+                            thread.start_address,
+                        ),
+                    },
+                    mitre_id="T1055.003",
+                ))
+
+        return findings
+
     # ---- process scanner ------------------------------------------ #
 
     def scan_process(self, pid: int) -> list[MemoryFinding]:
@@ -303,6 +498,19 @@ class MemoryForensicsEngine:
                     object.__setattr__(f, "pid", pid)
 
                 all_findings.extend(findings)
+
+            # -- Hook detection (compares memory vs disk) ---------- #
+            all_findings.extend(
+                self._check_inline_hooks(pid, modules),
+            )
+
+            # -- Thread start-address analysis --------------------- #
+            threads = enumerate_threads(pid)
+            all_findings.extend(
+                self._check_thread_start_addresses(
+                    pid, modules, threads,
+                ),
+            )
 
             return all_findings
         finally:

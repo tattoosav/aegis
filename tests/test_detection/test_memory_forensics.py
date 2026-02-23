@@ -9,7 +9,7 @@ from aegis.detection.memory_forensics import (
     MemoryFinding,
     MemoryForensicsEngine,
 )
-from aegis.detection.win_memory import MemoryRegion, ModuleInfo
+from aegis.detection.win_memory import MemoryRegion, ModuleInfo, ThreadInfo
 
 # ------------------------------------------------------------------ #
 # Helpers
@@ -429,3 +429,267 @@ class TestAnalyzeEvent:
 
         alerts = engine.analyze_event(event)
         assert alerts == []
+
+
+# ------------------------------------------------------------------ #
+# Inline hook detection
+# ------------------------------------------------------------------ #
+
+
+class TestInlineHookDetection:
+    """Tests for _check_inline_hooks."""
+
+    def test_detects_jmp_at_function_entry(self) -> None:
+        """JMP instruction (0xE9) at module export entry = hook."""
+        engine = MemoryForensicsEngine()
+        # Original bytes from disk: normal function prologue
+        disk_bytes = b"\x48\x89\x5c\x24\x08"  # mov [rsp+8], rbx
+        # Memory bytes: JMP instruction (hooked)
+        mem_bytes = b"\xe9\x00\x10\x00\x00"   # jmp +0x1000
+
+        module = ModuleInfo(
+            base=0x7FF00000, size=0x100000,
+            name="ntdll.dll",
+            path="C:\\Windows\\System32\\ntdll.dll",
+        )
+
+        findings = engine._check_inline_hooks(
+            pid=1234, modules=[module],
+            read_fn=lambda h, addr, sz: mem_bytes,
+            disk_fn=lambda path, offset, sz: disk_bytes,
+        )
+        assert len(findings) >= 1
+        assert findings[0].finding_type == FindingType.INLINE_HOOK
+
+    def test_detects_far_jmp_at_function_entry(self) -> None:
+        """Far JMP (0xFF 0x25) at module export entry = hook."""
+        engine = MemoryForensicsEngine()
+        disk_bytes = b"\x48\x89\x5c\x24\x08"
+        mem_bytes = b"\xff\x25\x00\x10\x00\x00"  # jmp [rip+0x1000]
+
+        module = ModuleInfo(
+            base=0x7FF00000, size=0x100000,
+            name="kernel32.dll",
+            path="C:\\Windows\\System32\\kernel32.dll",
+        )
+
+        findings = engine._check_inline_hooks(
+            pid=1234, modules=[module],
+            read_fn=lambda h, addr, sz: mem_bytes,
+            disk_fn=lambda path, offset, sz: disk_bytes,
+        )
+        assert len(findings) >= 1
+        assert findings[0].finding_type == FindingType.INLINE_HOOK
+
+    def test_no_hook_when_bytes_match(self) -> None:
+        """Matching disk/memory bytes = no hook."""
+        engine = MemoryForensicsEngine()
+        normal_bytes = b"\x48\x89\x5c\x24\x08"
+
+        module = ModuleInfo(
+            base=0x7FF00000, size=0x100000,
+            name="kernel32.dll",
+            path="C:\\Windows\\System32\\kernel32.dll",
+        )
+
+        findings = engine._check_inline_hooks(
+            pid=1234, modules=[module],
+            read_fn=lambda h, addr, sz: normal_bytes,
+            disk_fn=lambda path, offset, sz: normal_bytes,
+        )
+        assert len(findings) == 0
+
+    def test_skips_non_target_dlls(self) -> None:
+        """Non-critical DLLs are not checked for hooks."""
+        engine = MemoryForensicsEngine()
+        disk_bytes = b"\x48\x89\x5c\x24\x08"
+        mem_bytes = b"\xe9\x00\x10\x00\x00"
+
+        module = ModuleInfo(
+            base=0x7FF00000, size=0x100000,
+            name="myapp.dll",
+            path="C:\\Users\\app\\myapp.dll",
+        )
+
+        findings = engine._check_inline_hooks(
+            pid=1234, modules=[module],
+            read_fn=lambda h, addr, sz: mem_bytes,
+            disk_fn=lambda path, offset, sz: disk_bytes,
+        )
+        assert len(findings) == 0
+
+    def test_hook_finding_has_correct_mitre_id(self) -> None:
+        """Inline hook findings map to MITRE T1055."""
+        engine = MemoryForensicsEngine()
+        disk_bytes = b"\x48\x89\x5c\x24\x08"
+        mem_bytes = b"\xe9\x00\x10\x00\x00"
+
+        module = ModuleInfo(
+            base=0x7FF00000, size=0x100000,
+            name="ntdll.dll",
+            path="C:\\Windows\\System32\\ntdll.dll",
+        )
+
+        findings = engine._check_inline_hooks(
+            pid=1234, modules=[module],
+            read_fn=lambda h, addr, sz: mem_bytes,
+            disk_fn=lambda path, offset, sz: disk_bytes,
+        )
+        assert findings[0].mitre_id == "T1055"
+        assert findings[0].pid == 1234
+
+    def test_handles_read_failure_gracefully(self) -> None:
+        """Gracefully handles None from read functions."""
+        engine = MemoryForensicsEngine()
+
+        module = ModuleInfo(
+            base=0x7FF00000, size=0x100000,
+            name="ntdll.dll",
+            path="C:\\Windows\\System32\\ntdll.dll",
+        )
+
+        findings = engine._check_inline_hooks(
+            pid=1234, modules=[module],
+            read_fn=lambda h, addr, sz: None,
+            disk_fn=lambda path, offset, sz: None,
+        )
+        assert len(findings) == 0
+
+
+# ------------------------------------------------------------------ #
+# Thread start address detection
+# ------------------------------------------------------------------ #
+
+
+class TestThreadStartAddressDetection:
+    """Tests for _check_thread_start_addresses."""
+
+    def test_flags_thread_outside_modules(self) -> None:
+        """Thread starting outside all module ranges = suspicious."""
+        engine = MemoryForensicsEngine()
+        modules = [
+            ModuleInfo(
+                base=0x7FF00000, size=0x100000,
+                name="ntdll.dll", path="",
+            ),
+            ModuleInfo(
+                base=0x7FFE0000, size=0x50000,
+                name="kernel32.dll", path="",
+            ),
+        ]
+        threads = [
+            ThreadInfo(
+                thread_id=100, owner_pid=1234,
+                start_address=0x7FF00100,
+            ),  # Inside ntdll
+            ThreadInfo(
+                thread_id=101, owner_pid=1234,
+                start_address=0x1000000,
+            ),  # Outside all modules!
+        ]
+
+        findings = engine._check_thread_start_addresses(
+            pid=1234, modules=modules, threads=threads,
+        )
+        assert len(findings) == 1
+        assert findings[0].finding_type == FindingType.SUSPICIOUS_THREAD
+        assert findings[0].details["thread_id"] == 101
+
+    def test_all_threads_in_modules(self) -> None:
+        """All threads within module ranges = no findings."""
+        engine = MemoryForensicsEngine()
+        modules = [
+            ModuleInfo(
+                base=0x7FF00000, size=0x100000,
+                name="ntdll.dll", path="",
+            ),
+        ]
+        threads = [
+            ThreadInfo(
+                thread_id=100, owner_pid=1234,
+                start_address=0x7FF00100,
+            ),
+        ]
+
+        findings = engine._check_thread_start_addresses(
+            pid=1234, modules=modules, threads=threads,
+        )
+        assert len(findings) == 0
+
+    def test_skips_thread_with_zero_start_address(self) -> None:
+        """Threads with start_address == 0 are skipped."""
+        engine = MemoryForensicsEngine()
+        modules = [
+            ModuleInfo(
+                base=0x7FF00000, size=0x100000,
+                name="ntdll.dll", path="",
+            ),
+        ]
+        threads = [
+            ThreadInfo(
+                thread_id=200, owner_pid=1234,
+                start_address=0,
+            ),
+        ]
+
+        findings = engine._check_thread_start_addresses(
+            pid=1234, modules=modules, threads=threads,
+        )
+        assert len(findings) == 0
+
+    def test_suspicious_thread_has_correct_mitre_id(self) -> None:
+        """Suspicious thread findings map to MITRE T1055.003."""
+        engine = MemoryForensicsEngine()
+        modules = [
+            ModuleInfo(
+                base=0x7FF00000, size=0x100000,
+                name="ntdll.dll", path="",
+            ),
+        ]
+        threads = [
+            ThreadInfo(
+                thread_id=300, owner_pid=1234,
+                start_address=0xDEAD0000,
+            ),
+        ]
+
+        findings = engine._check_thread_start_addresses(
+            pid=1234, modules=modules, threads=threads,
+        )
+        assert len(findings) == 1
+        assert findings[0].mitre_id == "T1055.003"
+        assert findings[0].pid == 1234
+        assert findings[0].address == 0xDEAD0000
+
+    def test_thread_at_module_boundary(self) -> None:
+        """Thread at exact module base is inside; at base+size is outside."""
+        engine = MemoryForensicsEngine()
+        modules = [
+            ModuleInfo(
+                base=0x7FF00000, size=0x100000,
+                name="ntdll.dll", path="",
+            ),
+        ]
+        # At exact base -> inside
+        threads_inside = [
+            ThreadInfo(
+                thread_id=400, owner_pid=1234,
+                start_address=0x7FF00000,
+            ),
+        ]
+        findings = engine._check_thread_start_addresses(
+            pid=1234, modules=modules, threads=threads_inside,
+        )
+        assert len(findings) == 0
+
+        # At base + size -> outside (exclusive upper bound)
+        threads_outside = [
+            ThreadInfo(
+                thread_id=401, owner_pid=1234,
+                start_address=0x7FF00000 + 0x100000,
+            ),
+        ]
+        findings = engine._check_thread_start_addresses(
+            pid=1234, modules=modules, threads=threads_outside,
+        )
+        assert len(findings) == 1
