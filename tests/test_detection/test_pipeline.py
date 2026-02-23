@@ -322,3 +322,85 @@ class TestAlertFactory:
             engine="e",
         )
         assert alert.mitre_ids == []
+
+
+# ------------------------------------------------------------------ #
+# Parallel engines — Memory forensics
+# ------------------------------------------------------------------ #
+
+class TestMemoryForensics:
+    """Tests for memory forensics engine in parallel engines."""
+
+    def test_pipeline_runs_memory_forensics_on_image_load(self) -> None:
+        mock_engine = MagicMock()
+        mock_engine.analyze_event.return_value = [
+            Alert(
+                event_id="evt-test",
+                sensor=SensorType.ETW,
+                alert_type="memory_reflective_dll",
+                severity=Severity.CRITICAL,
+                title="Reflective DLL",
+                description="Test",
+                confidence=0.95,
+                data={},
+                mitre_ids=["T1620"],
+            )
+        ]
+        pipeline = DetectionPipeline(memory_forensics=mock_engine)
+        event = _make_event(
+            sensor=SensorType.ETW,
+            event_type="etw.process_image_load",
+            data={"pid": 1234, "image_path": "\\evil.dll"},
+        )
+        alerts = pipeline.process_event(event)
+        assert len(alerts) >= 1
+        assert any(
+            a.alert_type == "memory_reflective_dll" for a in alerts
+        )
+
+    def test_memory_forensics_not_called_for_unrelated_event(
+        self,
+    ) -> None:
+        mock_engine = MagicMock()
+        pipeline = DetectionPipeline(memory_forensics=mock_engine)
+        event = _make_event(
+            event_type="connection",
+            data={"dst_ip": "10.0.0.1"},
+        )
+        pipeline.process_event(event)
+        mock_engine.analyze_event.assert_not_called()
+
+    def test_memory_forensics_called_for_process_new(self) -> None:
+        mock_engine = MagicMock()
+        mock_engine.analyze_event.return_value = []
+        pipeline = DetectionPipeline(memory_forensics=mock_engine)
+        event = _make_event(
+            sensor=SensorType.PROCESS,
+            event_type="process_new",
+            data={"pid": 5678, "name": "suspicious.exe"},
+        )
+        pipeline.process_event(event)
+        mock_engine.analyze_event.assert_called_once_with(event)
+
+    def test_memory_forensics_exception_handled(self) -> None:
+        mock_engine = MagicMock()
+        mock_engine.analyze_event.side_effect = RuntimeError("boom")
+        pipeline = DetectionPipeline(memory_forensics=mock_engine)
+        event = _make_event(
+            sensor=SensorType.ETW,
+            event_type="etw.process_image_load",
+            data={"pid": 1234, "image_path": "\\evil.dll"},
+        )
+        alerts = pipeline.process_event(event)
+        # Exception should be handled gracefully, not crash
+        assert isinstance(alerts, list)
+
+    def test_memory_forensics_none_skipped(self) -> None:
+        pipeline = DetectionPipeline(memory_forensics=None)
+        event = _make_event(
+            sensor=SensorType.ETW,
+            event_type="etw.process_image_load",
+            data={"pid": 1234, "image_path": "\\evil.dll"},
+        )
+        alerts = pipeline.process_event(event)
+        assert alerts == []

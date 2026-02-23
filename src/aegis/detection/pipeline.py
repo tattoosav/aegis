@@ -4,7 +4,7 @@ Implements the cascade + parallel detection flow from the design document:
 
 1. Rule Engine (fast path — known threat signatures)
 2. Isolation Forest → Autoencoder cascade (statistical → deep anomaly)
-3. Parallel engines: LSTM, URL Classifier, Graph Analyzer
+3. Parallel engines: LSTM, URL Classifier, Graph Analyzer, Memory Forensics
 
 The pipeline is **detection only** — it produces Alert objects that are
 presented to the user in the UI.  No response action is ever triggered
@@ -60,6 +60,8 @@ class DetectionPipeline:
         Instance with ``predict(url) -> dict``.
     graph_analyzer:
         Instance with ``add_event(event)``, ``analyze() -> list[ChainMatch]``.
+    memory_forensics:
+        Instance with ``analyze_event(event) -> list[Alert]``.
     """
 
     def __init__(
@@ -73,6 +75,7 @@ class DetectionPipeline:
         yara_scanner: Any = None,
         dns_analyzer: Any = None,
         whitelist_manager: Any = None,
+        memory_forensics: Any = None,
     ) -> None:
         self._rule_engine = rule_engine
         self._anomaly_detector = anomaly_detector
@@ -83,6 +86,7 @@ class DetectionPipeline:
         self._yara_scanner = yara_scanner
         self._dns_analyzer = dns_analyzer
         self._whitelist_manager = whitelist_manager
+        self._memory_forensics = memory_forensics
 
     # ------------------------------------------------------------------
     # Public API
@@ -220,8 +224,15 @@ class DetectionPipeline:
     # Parallel / independent engines
     # ------------------------------------------------------------------
 
+    # Event types that should trigger memory forensics scanning.
+    _MEMORY_FORENSICS_EVENT_TYPES: set[str] = {
+        "etw.process_image_load",
+        "process_new",
+    }
+
     def _run_parallel_engines(self, event: AegisEvent) -> list[Alert]:
-        """Run LSTM, URL Classifier, Graph Analyzer, and DNS Analyzer."""
+        """Run LSTM, URL Classifier, Graph Analyzer, DNS Analyzer,
+        and Memory Forensics."""
         alerts: list[Alert] = []
 
         # DNS Analyzer — for dns_query events
@@ -246,6 +257,13 @@ class DetectionPipeline:
             alert = self._run_lstm_analyzer(event)
             if alert is not None:
                 alerts.append(alert)
+
+        # Memory Forensics — for image load and process creation
+        if (
+            event.event_type in self._MEMORY_FORENSICS_EVENT_TYPES
+            and self._memory_forensics is not None
+        ):
+            alerts.extend(self._run_memory_forensics(event))
 
         return alerts
 
@@ -399,6 +417,21 @@ class DetectionPipeline:
         except Exception:
             logger.exception("DNS analyzer failed for event %s", event.event_id)
             return None
+
+    # ------------------------------------------------------------------
+    # Memory forensics
+    # ------------------------------------------------------------------
+
+    def _run_memory_forensics(self, event: AegisEvent) -> list[Alert]:
+        """Run memory forensics engine on process-related events."""
+        try:
+            return self._memory_forensics.analyze_event(event)
+        except Exception:
+            logger.exception(
+                "Memory forensics failed for event %s",
+                event.event_id,
+            )
+            return []
 
     # ------------------------------------------------------------------
     # Alert factory
