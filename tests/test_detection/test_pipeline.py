@@ -404,3 +404,228 @@ class TestMemoryForensics:
         )
         alerts = pipeline.process_event(event)
         assert alerts == []
+
+
+# ------------------------------------------------------------------ #
+# Parallel engines — Encrypted traffic
+# ------------------------------------------------------------------ #
+
+class TestEncryptedTraffic:
+    """Tests for encrypted traffic engine in parallel engines."""
+
+    def test_pipeline_runs_encrypted_traffic_on_tls(self) -> None:
+        mock_engine = MagicMock()
+        mock_engine.analyze_event.return_value = [
+            Alert(
+                event_id="evt-test",
+                sensor=SensorType.ETW,
+                alert_type="encrypted_traffic_malicious_ja3",
+                severity=Severity.HIGH,
+                title="Malicious JA3",
+                description="Test",
+                confidence=0.9,
+                data={},
+                mitre_ids=["T1573"],
+            )
+        ]
+        pipeline = DetectionPipeline(encrypted_traffic=mock_engine)
+        event = _make_event(
+            sensor=SensorType.ETW,
+            event_type="etw.tls_handshake",
+            data={
+                "server_name": "evil.com",
+                "ja3_hash": "abc123",
+            },
+        )
+        alerts = pipeline.process_event(event)
+        assert any(
+            a.alert_type == "encrypted_traffic_malicious_ja3"
+            for a in alerts
+        )
+
+    def test_encrypted_traffic_on_http(self) -> None:
+        mock_engine = MagicMock()
+        mock_engine.analyze_event.return_value = []
+        pipeline = DetectionPipeline(encrypted_traffic=mock_engine)
+        event = _make_event(
+            sensor=SensorType.ETW,
+            event_type="etw.http_request",
+            data={"url": "https://test.com", "pid": 1234},
+        )
+        pipeline.process_event(event)
+        mock_engine.analyze_event.assert_called_once()
+
+    def test_encrypted_traffic_on_connection(self) -> None:
+        mock_engine = MagicMock()
+        mock_engine.analyze_event.return_value = []
+        pipeline = DetectionPipeline(encrypted_traffic=mock_engine)
+        event = _make_event(
+            sensor=SensorType.NETWORK,
+            event_type="connection",
+            data={"dst_ip": "10.0.0.1", "dst_port": 443},
+        )
+        pipeline.process_event(event)
+        mock_engine.analyze_event.assert_called_once_with(event)
+
+    def test_encrypted_traffic_not_called_for_unrelated(self) -> None:
+        mock_engine = MagicMock()
+        pipeline = DetectionPipeline(encrypted_traffic=mock_engine)
+        event = _make_event(
+            event_type="file_change",
+            data={"path": "/tmp/test.txt", "change_type": "created"},
+        )
+        pipeline.process_event(event)
+        mock_engine.analyze_event.assert_not_called()
+
+    def test_encrypted_traffic_exception_handled(self) -> None:
+        mock_engine = MagicMock()
+        mock_engine.analyze_event.side_effect = RuntimeError("boom")
+        pipeline = DetectionPipeline(encrypted_traffic=mock_engine)
+        event = _make_event(
+            sensor=SensorType.ETW,
+            event_type="etw.tls_handshake",
+            data={"server_name": "evil.com", "ja3_hash": "abc"},
+        )
+        alerts = pipeline.process_event(event)
+        # Exception should be handled gracefully, not crash
+        assert isinstance(alerts, list)
+
+    def test_encrypted_traffic_none_skipped(self) -> None:
+        pipeline = DetectionPipeline(encrypted_traffic=None)
+        event = _make_event(
+            sensor=SensorType.ETW,
+            event_type="etw.tls_handshake",
+            data={"server_name": "evil.com", "ja3_hash": "abc"},
+        )
+        alerts = pipeline.process_event(event)
+        assert alerts == []
+
+
+# ------------------------------------------------------------------ #
+# Parallel engines — Fileless detector
+# ------------------------------------------------------------------ #
+
+class TestFilelessDetector:
+    """Tests for fileless detector engine in parallel engines."""
+
+    def test_pipeline_runs_fileless_on_powershell(self) -> None:
+        mock_engine = MagicMock()
+        mock_engine.analyze_event.return_value = [
+            Alert(
+                event_id="evt-test",
+                sensor=SensorType.ETW,
+                alert_type="fileless_powershell_obfuscation",
+                severity=Severity.HIGH,
+                title="Obfuscated PowerShell",
+                description="Test",
+                confidence=0.8,
+                data={},
+                mitre_ids=["T1027"],
+            )
+        ]
+        pipeline = DetectionPipeline(fileless_detector=mock_engine)
+        event = _make_event(
+            sensor=SensorType.ETW,
+            event_type="etw.powershell_scriptblock",
+            data={"script_text": "test", "pid": 1234},
+        )
+        alerts = pipeline.process_event(event)
+        assert any(
+            a.alert_type == "fileless_powershell_obfuscation"
+            for a in alerts
+        )
+
+    def test_fileless_on_process_new(self) -> None:
+        mock_engine = MagicMock()
+        mock_engine.analyze_event.return_value = []
+        pipeline = DetectionPipeline(fileless_detector=mock_engine)
+        event = _make_event(
+            sensor=SensorType.PROCESS,
+            event_type="process_new",
+            data={"name": "cmd.exe", "parent_name": "winword.exe"},
+        )
+        pipeline.process_event(event)
+        mock_engine.analyze_event.assert_called_once()
+
+    def test_fileless_on_dotnet_assembly_load(self) -> None:
+        mock_engine = MagicMock()
+        mock_engine.analyze_event.return_value = [
+            Alert(
+                event_id="evt-test",
+                sensor=SensorType.ETW,
+                alert_type="fileless_dotnet_injection",
+                severity=Severity.HIGH,
+                title="In-memory .NET assembly",
+                description="Test",
+                confidence=0.7,
+                data={},
+                mitre_ids=["T1055"],
+            )
+        ]
+        pipeline = DetectionPipeline(fileless_detector=mock_engine)
+        event = _make_event(
+            sensor=SensorType.ETW,
+            event_type="etw.dotnet_assembly_load",
+            data={"assembly_name": "evil", "is_dynamic": True},
+        )
+        alerts = pipeline.process_event(event)
+        assert any(
+            a.alert_type == "fileless_dotnet_injection"
+            for a in alerts
+        )
+
+    def test_fileless_on_wmi_activity(self) -> None:
+        mock_engine = MagicMock()
+        mock_engine.analyze_event.return_value = []
+        pipeline = DetectionPipeline(fileless_detector=mock_engine)
+        event = _make_event(
+            sensor=SensorType.ETW,
+            event_type="etw.wmi_activity",
+            data={"namespace": "root\\subscription"},
+        )
+        pipeline.process_event(event)
+        mock_engine.analyze_event.assert_called_once()
+
+    def test_fileless_on_amsi_scan(self) -> None:
+        mock_engine = MagicMock()
+        mock_engine.analyze_event.return_value = []
+        pipeline = DetectionPipeline(fileless_detector=mock_engine)
+        event = _make_event(
+            sensor=SensorType.ETW,
+            event_type="etw.amsi_scan",
+            data={"content_name": "test", "app_name": "pwsh"},
+        )
+        pipeline.process_event(event)
+        mock_engine.analyze_event.assert_called_once()
+
+    def test_fileless_not_called_for_unrelated_event(self) -> None:
+        mock_engine = MagicMock()
+        pipeline = DetectionPipeline(fileless_detector=mock_engine)
+        event = _make_event(
+            event_type="connection",
+            data={"dst_ip": "10.0.0.1"},
+        )
+        pipeline.process_event(event)
+        mock_engine.analyze_event.assert_not_called()
+
+    def test_fileless_exception_handled(self) -> None:
+        mock_engine = MagicMock()
+        mock_engine.analyze_event.side_effect = RuntimeError("boom")
+        pipeline = DetectionPipeline(fileless_detector=mock_engine)
+        event = _make_event(
+            sensor=SensorType.ETW,
+            event_type="etw.powershell_scriptblock",
+            data={"script_text": "test", "pid": 1234},
+        )
+        alerts = pipeline.process_event(event)
+        assert isinstance(alerts, list)
+
+    def test_fileless_none_skipped(self) -> None:
+        pipeline = DetectionPipeline(fileless_detector=None)
+        event = _make_event(
+            sensor=SensorType.ETW,
+            event_type="etw.powershell_scriptblock",
+            data={"script_text": "test", "pid": 1234},
+        )
+        alerts = pipeline.process_event(event)
+        assert alerts == []

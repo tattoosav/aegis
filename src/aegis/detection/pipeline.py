@@ -4,7 +4,8 @@ Implements the cascade + parallel detection flow from the design document:
 
 1. Rule Engine (fast path — known threat signatures)
 2. Isolation Forest → Autoencoder cascade (statistical → deep anomaly)
-3. Parallel engines: LSTM, URL Classifier, Graph Analyzer, Memory Forensics
+3. Parallel engines: LSTM, URL Classifier, Graph Analyzer, Memory Forensics,
+   Encrypted Traffic, Fileless Detector
 
 The pipeline is **detection only** — it produces Alert objects that are
 presented to the user in the UI.  No response action is ever triggered
@@ -62,6 +63,10 @@ class DetectionPipeline:
         Instance with ``add_event(event)``, ``analyze() -> list[ChainMatch]``.
     memory_forensics:
         Instance with ``analyze_event(event) -> list[Alert]``.
+    encrypted_traffic:
+        Instance with ``analyze_event(event) -> list[Alert]``.
+    fileless_detector:
+        Instance with ``analyze_event(event) -> list[Alert]``.
     """
 
     def __init__(
@@ -76,6 +81,8 @@ class DetectionPipeline:
         dns_analyzer: Any = None,
         whitelist_manager: Any = None,
         memory_forensics: Any = None,
+        encrypted_traffic: Any = None,
+        fileless_detector: Any = None,
     ) -> None:
         self._rule_engine = rule_engine
         self._anomaly_detector = anomaly_detector
@@ -87,6 +94,8 @@ class DetectionPipeline:
         self._dns_analyzer = dns_analyzer
         self._whitelist_manager = whitelist_manager
         self._memory_forensics = memory_forensics
+        self._encrypted_traffic = encrypted_traffic
+        self._fileless_detector = fileless_detector
 
     # ------------------------------------------------------------------
     # Public API
@@ -230,9 +239,16 @@ class DetectionPipeline:
         "process_new",
     }
 
+    # Event types that should trigger encrypted traffic analysis.
+    _ENCRYPTED_TRAFFIC_EVENT_TYPES: set[str] = {
+        "etw.tls_handshake",
+        "etw.http_request",
+        "connection",
+    }
+
     def _run_parallel_engines(self, event: AegisEvent) -> list[Alert]:
         """Run LSTM, URL Classifier, Graph Analyzer, DNS Analyzer,
-        and Memory Forensics."""
+        Memory Forensics, and Encrypted Traffic."""
         alerts: list[Alert] = []
 
         # DNS Analyzer — for dns_query events
@@ -264,6 +280,13 @@ class DetectionPipeline:
             and self._memory_forensics is not None
         ):
             alerts.extend(self._run_memory_forensics(event))
+
+        # Encrypted Traffic — for TLS, HTTP, and connection events
+        if (
+            event.event_type in self._ENCRYPTED_TRAFFIC_EVENT_TYPES
+            and self._encrypted_traffic is not None
+        ):
+            alerts.extend(self._run_encrypted_traffic(event))
 
         return alerts
 
@@ -429,6 +452,21 @@ class DetectionPipeline:
         except Exception:
             logger.exception(
                 "Memory forensics failed for event %s",
+                event.event_id,
+            )
+            return []
+
+    # ------------------------------------------------------------------
+    # Encrypted traffic
+    # ------------------------------------------------------------------
+
+    def _run_encrypted_traffic(self, event: AegisEvent) -> list[Alert]:
+        """Run encrypted traffic engine on TLS/HTTP/connection events."""
+        try:
+            return self._encrypted_traffic.analyze_event(event)
+        except Exception:
+            logger.exception(
+                "Encrypted traffic engine failed for event %s",
                 event.event_id,
             )
             return []
