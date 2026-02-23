@@ -34,6 +34,9 @@ class AegisCoordinator:
         self._engine: Any = None
         self._scheduler: Any = None
         self._canary_system: Any = None
+        self._response_router: Any = None
+        self._execution_store: Any = None
+        self._system_health: Any = None
         self._sensors: list[Any] = []
 
     # ------------------------------------------------------------------
@@ -221,6 +224,39 @@ class AegisCoordinator:
                 "ReportGenerator init failed: %s", exc,
             )
 
+        # 10b. ExecutionStore
+        if self._playbook_engine is not None and self._db is not None:
+            try:
+                from aegis.response.execution_store import (
+                    ExecutionStore,
+                )
+
+                self._execution_store = ExecutionStore(
+                    self._playbook_engine, db=self._db,
+                )
+                logger.info("ExecutionStore initialised")
+            except Exception as exc:
+                logger.warning(
+                    "ExecutionStore init failed: %s", exc,
+                )
+
+        # 10c. ResponseRouter
+        try:
+            from aegis.response.response_router import (
+                ResponseRouter,
+            )
+
+            self._response_router = ResponseRouter(
+                playbook_engine=self._playbook_engine,
+                report_generator=self._report_generator,
+                forensic_logger=self._forensic_logger,
+            )
+            logger.info("ResponseRouter initialised")
+        except Exception as exc:
+            logger.warning(
+                "ResponseRouter init failed: %s", exc,
+            )
+
         # 11. EventEngine
         try:
             from aegis.core.engine import EventEngine
@@ -248,6 +284,10 @@ class AegisCoordinator:
             if self._report_generator:
                 self._engine._report_generator = (
                     self._report_generator
+                )
+            if self._response_router:
+                self._engine._response_router = (
+                    self._response_router
                 )
             logger.info("EventEngine initialised")
         except Exception as exc:
@@ -305,6 +345,15 @@ class AegisCoordinator:
                 logger.warning(
                     "CanaryDeploymentSystem init failed: %s", exc,
                 )
+
+        # 14. SystemHealth
+        try:
+            from aegis.core.health import SystemHealth
+
+            self._system_health = SystemHealth(self)
+            logger.info("SystemHealth initialised")
+        except Exception as exc:
+            logger.warning("SystemHealth init failed: %s", exc)
 
     # ------------------------------------------------------------------
     # Scheduled tasks
@@ -379,6 +428,14 @@ class AegisCoordinator:
                 name="stale_incident_prune",
                 callback=_stale_incident_prune,
                 interval_seconds=3_600,
+            )
+
+        # Execution store sync — every 5 minutes
+        if self._execution_store is not None:
+            self._scheduler.add_task(
+                name="execution_store_sync",
+                callback=self._execution_store.sync_from_engine,
+                interval_seconds=300,
             )
 
     # ------------------------------------------------------------------
@@ -476,3 +533,33 @@ class AegisCoordinator:
     def enricher(self) -> Any:
         """The :class:`EventEnricher`, or ``None``."""
         return self._enricher
+
+    @property
+    def response_router(self) -> Any:
+        """The :class:`ResponseRouter`, or ``None``."""
+        return self._response_router
+
+    @property
+    def execution_store(self) -> Any:
+        """The :class:`ExecutionStore`, or ``None``."""
+        return self._execution_store
+
+    @property
+    def system_health(self) -> Any:
+        """The :class:`SystemHealth`, or ``None``."""
+        return self._system_health
+
+    @property
+    def playbook_engine(self) -> Any:
+        """The :class:`PlaybookEngine`, or ``None``."""
+        return self._playbook_engine
+
+    @property
+    def report_generator(self) -> Any:
+        """The :class:`ReportGenerator`, or ``None``."""
+        return self._report_generator
+
+    @property
+    def forensic_logger(self) -> Any:
+        """The :class:`ForensicLogger`, or ``None``."""
+        return self._forensic_logger

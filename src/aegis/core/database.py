@@ -124,6 +124,32 @@ CREATE TABLE IF NOT EXISTS incident_alerts (
 );
 CREATE INDEX IF NOT EXISTS idx_incident_alerts_incident ON incident_alerts(incident_id);
 
+CREATE TABLE IF NOT EXISTS playbook_executions (
+    execution_id TEXT PRIMARY KEY,
+    playbook_id TEXT NOT NULL,
+    playbook_name TEXT NOT NULL,
+    alert_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'running',
+    started_at REAL NOT NULL,
+    completed_at REAL,
+    current_step INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_pb_exec_status ON playbook_executions(status);
+CREATE INDEX IF NOT EXISTS idx_pb_exec_alert ON playbook_executions(alert_id);
+
+CREATE TABLE IF NOT EXISTS playbook_execution_steps (
+    execution_id TEXT NOT NULL,
+    step_index INTEGER NOT NULL,
+    step_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    started_at REAL,
+    completed_at REAL,
+    result_message TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (execution_id, step_index)
+);
+
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp REAL NOT NULL,
@@ -604,6 +630,230 @@ class AegisDatabase:
             "first_seen": row["first_seen"],
             "last_seen": row["last_seen"],
         }
+
+    # --- Playbook Executions ---
+
+    def insert_execution(
+        self,
+        execution_id: str,
+        playbook_id: str,
+        playbook_name: str,
+        alert_id: str,
+        status: str = "running",
+        started_at: float = 0.0,
+        current_step: int = 0,
+    ) -> None:
+        """Insert a new playbook execution."""
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO playbook_executions "
+                "(execution_id, playbook_id, playbook_name, "
+                "alert_id, status, started_at, current_step) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    execution_id,
+                    playbook_id,
+                    playbook_name,
+                    alert_id,
+                    status,
+                    started_at or time.time(),
+                    current_step,
+                ),
+            )
+            self._conn.commit()
+
+    def update_execution(
+        self,
+        execution_id: str,
+        status: str | None = None,
+        completed_at: float | None = None,
+        current_step: int | None = None,
+    ) -> bool:
+        """Update a playbook execution. Returns True if found."""
+        parts: list[str] = []
+        params: list[Any] = []
+        if status is not None:
+            parts.append("status = ?")
+            params.append(status)
+        if completed_at is not None:
+            parts.append("completed_at = ?")
+            params.append(completed_at)
+        if current_step is not None:
+            parts.append("current_step = ?")
+            params.append(current_step)
+        if not parts:
+            return False
+        params.append(execution_id)
+        with self._lock:
+            cursor = self._conn.execute(
+                f"UPDATE playbook_executions "
+                f"SET {', '.join(parts)} "
+                "WHERE execution_id = ?",
+                params,
+            )
+            self._conn.commit()
+            return cursor.rowcount > 0
+
+    def get_execution(
+        self, execution_id: str,
+    ) -> dict[str, Any] | None:
+        """Return a playbook execution by ID, or None."""
+        with self._lock:
+            cursor = self._conn.execute(
+                "SELECT * FROM playbook_executions "
+                "WHERE execution_id = ?",
+                (execution_id,),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "execution_id": row["execution_id"],
+            "playbook_id": row["playbook_id"],
+            "playbook_name": row["playbook_name"],
+            "alert_id": row["alert_id"],
+            "status": row["status"],
+            "started_at": row["started_at"],
+            "completed_at": row["completed_at"],
+            "current_step": row["current_step"],
+        }
+
+    def query_executions(
+        self,
+        status: str | None = None,
+        alert_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Query playbook executions with optional filters."""
+        query = "SELECT * FROM playbook_executions WHERE 1=1"
+        params: list[Any] = []
+        if status is not None:
+            query += " AND status = ?"
+            params.append(status)
+        if alert_id is not None:
+            query += " AND alert_id = ?"
+            params.append(alert_id)
+        query += " ORDER BY started_at DESC LIMIT ?"
+        params.append(limit)
+        with self._lock:
+            cursor = self._conn.execute(query, params)
+            return [
+                {
+                    "execution_id": r["execution_id"],
+                    "playbook_id": r["playbook_id"],
+                    "playbook_name": r["playbook_name"],
+                    "alert_id": r["alert_id"],
+                    "status": r["status"],
+                    "started_at": r["started_at"],
+                    "completed_at": r["completed_at"],
+                    "current_step": r["current_step"],
+                }
+                for r in cursor.fetchall()
+            ]
+
+    def execution_count(self, status: str | None = None) -> int:
+        """Count playbook executions."""
+        with self._lock:
+            if status is not None:
+                cursor = self._conn.execute(
+                    "SELECT COUNT(*) FROM playbook_executions "
+                    "WHERE status = ?",
+                    (status,),
+                )
+            else:
+                cursor = self._conn.execute(
+                    "SELECT COUNT(*) FROM playbook_executions",
+                )
+            return cursor.fetchone()[0]
+
+    def insert_execution_step(
+        self,
+        execution_id: str,
+        step_index: int,
+        step_id: str,
+        action: str,
+        target: str = "",
+        status: str = "pending",
+    ) -> None:
+        """Insert a playbook execution step."""
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO playbook_execution_steps "
+                "(execution_id, step_index, step_id, action, "
+                "target, status) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    execution_id,
+                    step_index,
+                    step_id,
+                    action,
+                    target,
+                    status,
+                ),
+            )
+            self._conn.commit()
+
+    def update_execution_step(
+        self,
+        execution_id: str,
+        step_index: int,
+        status: str | None = None,
+        started_at: float | None = None,
+        completed_at: float | None = None,
+        result_message: str | None = None,
+    ) -> bool:
+        """Update a playbook execution step. Returns True if found."""
+        parts: list[str] = []
+        params: list[Any] = []
+        if status is not None:
+            parts.append("status = ?")
+            params.append(status)
+        if started_at is not None:
+            parts.append("started_at = ?")
+            params.append(started_at)
+        if completed_at is not None:
+            parts.append("completed_at = ?")
+            params.append(completed_at)
+        if result_message is not None:
+            parts.append("result_message = ?")
+            params.append(result_message)
+        if not parts:
+            return False
+        params.extend([execution_id, step_index])
+        with self._lock:
+            cursor = self._conn.execute(
+                f"UPDATE playbook_execution_steps "
+                f"SET {', '.join(parts)} "
+                "WHERE execution_id = ? AND step_index = ?",
+                params,
+            )
+            self._conn.commit()
+            return cursor.rowcount > 0
+
+    def get_execution_steps(
+        self, execution_id: str,
+    ) -> list[dict[str, Any]]:
+        """Return all steps for a playbook execution."""
+        with self._lock:
+            cursor = self._conn.execute(
+                "SELECT * FROM playbook_execution_steps "
+                "WHERE execution_id = ? ORDER BY step_index",
+                (execution_id,),
+            )
+            return [
+                {
+                    "execution_id": r["execution_id"],
+                    "step_index": r["step_index"],
+                    "step_id": r["step_id"],
+                    "action": r["action"],
+                    "target": r["target"],
+                    "status": r["status"],
+                    "started_at": r["started_at"],
+                    "completed_at": r["completed_at"],
+                    "result_message": r["result_message"],
+                }
+                for r in cursor.fetchall()
+            ]
 
     # --- Retention cleanup ---
 

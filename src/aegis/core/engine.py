@@ -67,6 +67,7 @@ class EventEngine:
         self._incident_store: Any = None
         self._playbook_engine: Any = None
         self._report_generator: Any = None
+        self._response_router: Any = None
         self._bus: EventBus | None = None
         self._subscriber: EventSubscriber | None = None
         self._db: AegisDatabase | None = None
@@ -199,13 +200,25 @@ class EventEngine:
                     logger.error("Forensic log error: %s", exc)
 
             # 4c. Correlation — group into incidents
+            incident = None
             if self._incident_store is not None:
                 try:
-                    self._incident_store.process_alert(processed)
+                    incident = self._incident_store.process_alert(
+                        processed,
+                    )
                 except Exception as exc:
                     logger.error("Correlation failed: %s", exc)
 
-            # 4d. Route to notification channel
+            # 4d. Response routing — playbooks + reports
+            if self._response_router is not None:
+                try:
+                    self._response_router.route_alert(
+                        processed, incident,
+                    )
+                except Exception as exc:
+                    logger.error("Response routing failed: %s", exc)
+
+            # 4e. Route to notification channel
             if self._notification_manager:
                 try:
                     self._notification_manager.notify(processed)
