@@ -104,6 +104,26 @@ CREATE TABLE IF NOT EXISTS ioc_indicators (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ioc_type_value ON ioc_indicators(ioc_type, value);
 CREATE INDEX IF NOT EXISTS idx_ioc_value ON ioc_indicators(value);
 
+CREATE TABLE IF NOT EXISTS incidents (
+    incident_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'medium',
+    status TEXT NOT NULL DEFAULT 'open',
+    mitre_chain TEXT NOT NULL DEFAULT '[]',
+    entities TEXT NOT NULL DEFAULT '[]',
+    first_seen REAL NOT NULL,
+    last_seen REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status);
+CREATE INDEX IF NOT EXISTS idx_incidents_severity ON incidents(severity);
+
+CREATE TABLE IF NOT EXISTS incident_alerts (
+    incident_id TEXT NOT NULL,
+    alert_id TEXT NOT NULL,
+    PRIMARY KEY (incident_id, alert_id)
+);
+CREATE INDEX IF NOT EXISTS idx_incident_alerts_incident ON incident_alerts(incident_id);
+
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp REAL NOT NULL,
@@ -427,6 +447,163 @@ class AegisDatabase:
         with self._lock:
             cursor = self._conn.execute("SELECT COUNT(*) FROM ioc_indicators")
             return cursor.fetchone()[0]
+
+    # --- Incidents ---
+
+    def insert_incident(
+        self,
+        incident_id: str,
+        title: str,
+        severity: str,
+        status: str,
+        mitre_chain: list[str],
+        entities: list[str],
+        first_seen: float,
+        last_seen: float,
+    ) -> None:
+        """Insert a new incident."""
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO incidents "
+                "(incident_id, title, severity, status, mitre_chain, "
+                "entities, first_seen, last_seen) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    incident_id,
+                    title,
+                    severity,
+                    status,
+                    json.dumps(mitre_chain),
+                    json.dumps(entities),
+                    first_seen,
+                    last_seen,
+                ),
+            )
+            self._conn.commit()
+
+    def update_incident(
+        self,
+        incident_id: str,
+        title: str | None = None,
+        severity: str | None = None,
+        status: str | None = None,
+        mitre_chain: list[str] | None = None,
+        entities: list[str] | None = None,
+        last_seen: float | None = None,
+    ) -> bool:
+        """Update an existing incident. Returns True if found."""
+        parts: list[str] = []
+        params: list[Any] = []
+        if title is not None:
+            parts.append("title = ?")
+            params.append(title)
+        if severity is not None:
+            parts.append("severity = ?")
+            params.append(severity)
+        if status is not None:
+            parts.append("status = ?")
+            params.append(status)
+        if mitre_chain is not None:
+            parts.append("mitre_chain = ?")
+            params.append(json.dumps(mitre_chain))
+        if entities is not None:
+            parts.append("entities = ?")
+            params.append(json.dumps(entities))
+        if last_seen is not None:
+            parts.append("last_seen = ?")
+            params.append(last_seen)
+        if not parts:
+            return False
+        params.append(incident_id)
+        with self._lock:
+            cursor = self._conn.execute(
+                f"UPDATE incidents SET {', '.join(parts)} "
+                "WHERE incident_id = ?",
+                params,
+            )
+            self._conn.commit()
+            return cursor.rowcount > 0
+
+    def get_incident(self, incident_id: str) -> dict[str, Any] | None:
+        """Return an incident by ID, or None."""
+        with self._lock:
+            cursor = self._conn.execute(
+                "SELECT * FROM incidents WHERE incident_id = ?",
+                (incident_id,),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        return self._row_to_incident(row)
+
+    def query_incidents(
+        self,
+        status: str | None = None,
+        severity: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Query incidents with optional filters."""
+        query = "SELECT * FROM incidents WHERE 1=1"
+        params: list[Any] = []
+        if status is not None:
+            query += " AND status = ?"
+            params.append(status)
+        if severity is not None:
+            query += " AND severity = ?"
+            params.append(severity)
+        query += " ORDER BY last_seen DESC LIMIT ?"
+        params.append(limit)
+        with self._lock:
+            cursor = self._conn.execute(query, params)
+            return [self._row_to_incident(row) for row in cursor.fetchall()]
+
+    def add_alert_to_incident(
+        self, incident_id: str, alert_id: str,
+    ) -> None:
+        """Link an alert to an incident."""
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR IGNORE INTO incident_alerts "
+                "(incident_id, alert_id) VALUES (?, ?)",
+                (incident_id, alert_id),
+            )
+            self._conn.commit()
+
+    def get_incident_alerts(self, incident_id: str) -> list[str]:
+        """Return alert IDs associated with an incident."""
+        with self._lock:
+            cursor = self._conn.execute(
+                "SELECT alert_id FROM incident_alerts "
+                "WHERE incident_id = ?",
+                (incident_id,),
+            )
+            return [row[0] for row in cursor.fetchall()]
+
+    def incident_count(self, status: str | None = None) -> int:
+        """Count incidents, optionally filtered by status."""
+        with self._lock:
+            if status is not None:
+                cursor = self._conn.execute(
+                    "SELECT COUNT(*) FROM incidents WHERE status = ?",
+                    (status,),
+                )
+            else:
+                cursor = self._conn.execute(
+                    "SELECT COUNT(*) FROM incidents",
+                )
+            return cursor.fetchone()[0]
+
+    def _row_to_incident(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "incident_id": row["incident_id"],
+            "title": row["title"],
+            "severity": row["severity"],
+            "status": row["status"],
+            "mitre_chain": json.loads(row["mitre_chain"]),
+            "entities": json.loads(row["entities"]),
+            "first_seen": row["first_seen"],
+            "last_seen": row["last_seen"],
+        }
 
     # --- Retention cleanup ---
 

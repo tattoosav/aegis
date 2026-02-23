@@ -1,11 +1,10 @@
 """Entry point for Aegis — the AI Security Defense System.
 
-Launches the full stack:
+Launches the full stack via ``AegisCoordinator``:
   1. Configuration
-  2. Event Engine (ZeroMQ bus + database)
-  3. Detection Pipeline (rule engine, anomaly, graph analyzer)
-  4. Alert Manager + Forensic Logger
-  5. PySide6 dashboard + system tray
+  2. All subsystems (database, detection, alerting, response, scheduler)
+  3. Sensors
+  4. PySide6 dashboard + system tray
 
 Usage:
     python -m aegis
@@ -18,6 +17,8 @@ import signal
 import sys
 
 from aegis import __version__
+
+logger = logging.getLogger("aegis")
 
 
 def _start_sensors(config, engine) -> list:
@@ -71,9 +72,6 @@ def _start_sensors(config, engine) -> list:
     return sensors
 
 
-logger = logging.getLogger("aegis")
-
-
 def _setup_logging() -> None:
     """Configure logging with console and rotating file handler."""
     from logging.handlers import RotatingFileHandler
@@ -110,115 +108,40 @@ def main() -> int:
     _setup_logging()
     logger.info("Aegis v%s starting...", __version__)
 
-    # 1. Configuration — load from file if it exists
-    from aegis.core.config import AegisConfig
+    # 1. Configuration
     from pathlib import Path
 
-    config_path = Path.home() / "AppData" / "Roaming" / "Aegis" / "config.yaml"
+    from aegis.core.config import AegisConfig
+
+    config_path = (
+        Path.home() / "AppData" / "Roaming" / "Aegis" / "config.yaml"
+    )
     config = AegisConfig.load(config_path)
     logger.info("Config loaded from %s", config_path)
 
-    # 2. Detection Pipeline
-    from aegis.detection.pipeline import DetectionPipeline
+    # 2. Coordinator — initialises all subsystems
+    from aegis.core.coordinator import AegisCoordinator
 
-    pipeline_kwargs: dict = {}
+    coordinator = AegisCoordinator(config)
+    coordinator.setup()
+    coordinator.start()
 
-    # Wire in available engines (graceful if any are missing)
-    try:
-        from aegis.detection.rule_engine import RuleEngine
+    engine = coordinator.engine
+    forensic_logger = coordinator._forensic_logger
 
-        rule_engine = RuleEngine()
-        rule_engine.load_builtin_rules()
-        pipeline_kwargs["rule_engine"] = rule_engine
-        logger.info("Rule engine loaded (%d rules)", rule_engine.rule_count)
-    except Exception:
-        logger.warning("Rule engine not available")
-
-    try:
-        from aegis.detection.anomaly import AnomalyDetector
-
-        pipeline_kwargs["anomaly_detector"] = AnomalyDetector()
-        logger.info("Anomaly detector loaded")
-    except Exception:
-        logger.warning("Anomaly detector not available")
-
-    try:
-        from aegis.detection.graph_analyzer import (
-            ContextGraph,
-            GraphAnalyzer,
-        )
-
-        graph = ContextGraph()
-        pipeline_kwargs["graph_analyzer"] = GraphAnalyzer(graph=graph)
-        logger.info("Graph analyzer loaded")
-    except Exception:
-        logger.warning("Graph analyzer not available")
-
-    pipeline = DetectionPipeline(**pipeline_kwargs)
-
-    # 3. Alert Manager + Forensic Logger
-    from aegis.alerting.manager import AlertManager
-
-    alert_manager = AlertManager()
-
-    # 4. Event Engine
-    from aegis.core.engine import EventEngine
-
-    engine = EventEngine(
-        config=config,
-        detection_pipeline=pipeline,
-        alert_manager=alert_manager,
-    )
-    engine.start()
-
-    # Wire forensic logger after engine starts (needs db)
-    forensic_logger = None
-    if engine.db:
-        from aegis.response.forensic_logger import ForensicLogger
-
-        forensic_logger = ForensicLogger(engine.db)
-        engine._forensic_logger = forensic_logger
-        logger.info("Forensic logger attached")
-
-    # Wire playbook engine
-    try:
-        from aegis.response.playbook_engine import PlaybookEngine
-
-        playbook_engine = PlaybookEngine(
-            playbooks_dir=config.get("response.playbooks.playbooks_dir"),
-        )
-        loaded = playbook_engine.load_playbooks()
-        engine._playbook_engine = playbook_engine
-        logger.info("Playbook engine loaded (%d playbooks)", loaded)
-    except Exception:
-        logger.warning("Playbook engine not available")
-
-    # Wire report generator
-    try:
-        from aegis.response.report_generator import ReportGenerator
-
-        report_generator = ReportGenerator(
-            forensic_logger=forensic_logger,
-            mitre_mapper=getattr(engine, "_mitre_mapper", None),
-        )
-        engine._report_generator = report_generator
-        logger.info("Report generator available")
-    except Exception:
-        logger.warning("Report generator not available")
-
-    # Start sensors
+    # 3. Start sensors
     sensors = _start_sensors(config, engine)
-    engine._active_sensors = sensors
+    coordinator._sensors = sensors
     logger.info(
         "Engine started. sensors=%d active, pipeline=active",
         len(sensors),
     )
 
-    # 5. Launch UI
+    # 4. Launch UI
     try:
         from aegis.ui.app import create_app
 
-        app = create_app(db=engine.db, engine=engine)
+        app = create_app(db=coordinator.db, engine=engine)
         logger.info("UI ready — launching dashboard")
 
         # Wire action executor to alerts page
@@ -226,7 +149,7 @@ def main() -> int:
             from aegis.response.action_executor import ActionExecutor
 
             action_executor = ActionExecutor()
-            alerts_page = app.window._stack.widget(1)  # AlertsPage is index 1
+            alerts_page = app.window._stack.widget(1)
             if hasattr(alerts_page, "set_action_executor"):
                 alerts_page.set_action_executor(
                     action_executor, forensic_logger
@@ -264,12 +187,7 @@ def main() -> int:
         )
         exit_code = 0
     finally:
-        for s in sensors:
-            try:
-                s.stop()
-            except Exception:
-                pass
-        engine.stop()
+        coordinator.stop()
         logger.info("Aegis shutdown complete")
 
     return exit_code
