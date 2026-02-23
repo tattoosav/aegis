@@ -21,6 +21,7 @@ class SensorType(Enum):
     HARDWARE = "hardware"
     CLIPBOARD = "clipboard"
     REGISTRY = "registry"
+    ETW = "etw"
 
     @classmethod
     def from_string(cls, value: str) -> SensorType:

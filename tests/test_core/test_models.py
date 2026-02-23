@@ -115,6 +115,11 @@ class TestAlert:
         assert restored.status == AlertStatus.NEW
 
 
+def test_sensor_type_etw():
+    assert SensorType.ETW.value == "etw"
+    assert SensorType.from_string("etw") == SensorType.ETW
+
+
 class TestSeverity:
     def test_severity_ordering(self):
         assert Severity.CRITICAL.weight > Severity.HIGH.weight
