@@ -8,6 +8,7 @@ Supported feeds:
   - PhishTank (free, no API key required)
   - AbuseIPDB (requires API key)
   - VirusTotal (requires API key)
+  - SSLBL JA3 (free, no API key required)
 """
 
 from __future__ import annotations
@@ -234,6 +235,61 @@ class VirusTotalFeed(ThreatFeed):
                 metadata={
                     "malicious_count": malicious_count,
                     "file_type": attrs.get("type_description", ""),
+                },
+            ))
+        return indicators
+
+
+class SSLBLFeed(ThreatFeed):
+    """SSLBL JA3 blacklist from abuse.ch.
+
+    Fetches JA3 fingerprint blacklists in CSV format. No API key required.
+    """
+
+    FEED_URL = "https://sslbl.abuse.ch/blacklist/ja3_fingerprints.csv"
+
+    @property
+    def name(self) -> str:
+        return "sslbl_ja3"
+
+    def fetch(self) -> list[IOCIndicator]:
+        """Download and parse the SSLBL JA3 CSV feed."""
+        try:
+            import urllib.request
+
+            with urllib.request.urlopen(
+                self.FEED_URL, timeout=30,
+            ) as resp:
+                csv_data = resp.read().decode("utf-8", errors="replace")
+            return self._parse_csv(csv_data)
+        except Exception:
+            logger.warning("SSLBL fetch failed", exc_info=True)
+            return []
+
+    def _parse_csv(self, csv_data: str) -> list[IOCIndicator]:
+        """Parse SSLBL CSV format into IOCIndicator list.
+
+        Expected CSV format (no header row):
+            date,ja3_hash,family,description
+
+        Lines starting with ``#`` and empty lines are skipped.
+        Lines with fewer than 3 comma-separated fields are ignored.
+        """
+        indicators: list[IOCIndicator] = []
+        for line in csv_data.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split(",", 3)
+            if len(parts) < 3:
+                continue
+            indicators.append(IOCIndicator(
+                ioc_type="ja3",
+                value=parts[1].strip(),
+                source="sslbl",
+                metadata={
+                    "date": parts[0].strip(),
+                    "family": parts[2].strip(),
                 },
             ))
         return indicators

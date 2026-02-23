@@ -13,6 +13,7 @@ from aegis.intelligence.threat_feeds import (
     AbuseIPDBFeed,
     IOCIndicator,
     PhishTankFeed,
+    SSLBLFeed,
     ThreatFeedManager,
     VirusTotalFeed,
 )
@@ -245,6 +246,58 @@ class TestVirusTotalFeed:
         client.get.side_effect = TimeoutError("slow")
         feed = VirusTotalFeed(api_key="key", http_client=client)
         assert feed.fetch() == []
+
+
+# ---------------------------------------------------------------------------
+# SSLBLFeed
+# ---------------------------------------------------------------------------
+
+
+class TestSSLBLFeed:
+    """Tests for the SSLBL JA3 blacklist feed."""
+
+    def test_feed_name(self) -> None:
+        feed = SSLBLFeed()
+        assert feed.name == "sslbl_ja3"
+
+    def test_parse_csv_response(self) -> None:
+        csv_data = (
+            "# comment line\n"
+            "2024-01-01,abc123def456,Cobalt Strike,JA3 fingerprint\n"
+            "2024-01-02,789xyz000111,Metasploit,JA3 fingerprint\n"
+        )
+        feed = SSLBLFeed()
+        indicators = feed._parse_csv(csv_data)
+        assert len(indicators) == 2
+        assert indicators[0].ioc_type == "ja3"
+        assert indicators[0].value == "abc123def456"
+        assert indicators[0].source == "sslbl"
+        assert indicators[0].metadata["family"] == "Cobalt Strike"
+        assert indicators[0].metadata["date"] == "2024-01-01"
+        assert indicators[1].value == "789xyz000111"
+        assert indicators[1].metadata["family"] == "Metasploit"
+
+    def test_parse_csv_skips_comments_and_empty(self) -> None:
+        csv_data = (
+            "# Abuse.ch SSLBL JA3 fingerprints\n"
+            "#\n"
+            "\n"
+            "2024-01-01,abc123,Cobalt Strike,JA3\n"
+        )
+        feed = SSLBLFeed()
+        indicators = feed._parse_csv(csv_data)
+        assert len(indicators) == 1
+
+    def test_parse_csv_handles_short_lines(self) -> None:
+        csv_data = "2024-01-01,abc123\n"
+        feed = SSLBLFeed()
+        indicators = feed._parse_csv(csv_data)
+        assert len(indicators) == 0
+
+    def test_parse_csv_empty_input(self) -> None:
+        feed = SSLBLFeed()
+        indicators = feed._parse_csv("")
+        assert indicators == []
 
 
 # ---------------------------------------------------------------------------
