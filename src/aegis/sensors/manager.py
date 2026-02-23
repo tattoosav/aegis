@@ -55,6 +55,11 @@ SENSOR_REGISTRY: dict[str, tuple[str, str, SensorType]] = {
         "HardwareSensor",
         SensorType.HARDWARE,
     ),
+    "etw": (
+        "aegis.sensors.etw_sensor",
+        "ETWSensor",
+        SensorType.ETW,
+    ),
 }
 
 # Config keys that map to sensor __init__ interval parameter
@@ -66,6 +71,7 @@ _INTERVAL_KEYS: dict[str, str] = {
     "registry": "sensors.registry.scan_interval_seconds",
     "clipboard": "sensors.clipboard.scan_interval_seconds",
     "hardware": "sensors.hardware.scan_interval_seconds",
+    "etw": "sensors.etw.scan_interval_seconds",
 }
 
 
