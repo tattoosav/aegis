@@ -37,6 +37,7 @@ class AegisCoordinator:
         self._response_router: Any = None
         self._execution_store: Any = None
         self._system_health: Any = None
+        self._dashboard_service: Any = None
         self._sensors: list[Any] = []
 
     # ------------------------------------------------------------------
@@ -355,6 +356,19 @@ class AegisCoordinator:
         except Exception as exc:
             logger.warning("SystemHealth init failed: %s", exc)
 
+        # 15. DashboardDataService
+        try:
+            from aegis.core.dashboard_service import (
+                DashboardDataService,
+            )
+
+            self._dashboard_service = DashboardDataService(self)
+            logger.info("DashboardDataService initialised")
+        except Exception as exc:
+            logger.warning(
+                "DashboardDataService init failed: %s", exc,
+            )
+
     # ------------------------------------------------------------------
     # Scheduled tasks
     # ------------------------------------------------------------------
@@ -558,6 +572,11 @@ class AegisCoordinator:
     def report_generator(self) -> Any:
         """The :class:`ReportGenerator`, or ``None``."""
         return self._report_generator
+
+    @property
+    def dashboard_service(self) -> Any:
+        """The :class:`DashboardDataService`, or ``None``."""
+        return self._dashboard_service
 
     @property
     def forensic_logger(self) -> Any:
