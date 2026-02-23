@@ -1,0 +1,82 @@
+# LOLBins detection rules for Aegis
+# References: https://lolbas-project.github.io/
+
+parent_child_rules:
+  - name: office_spawns_scripting
+    parents: ["winword.exe", "excel.exe", "powerpnt.exe", "outlook.exe", "msaccess.exe"]
+    children: ["powershell.exe", "cmd.exe", "wscript.exe", "cscript.exe", "mshta.exe"]
+    severity: high
+    mitre_id: "T1204.002"
+    description: "Office application spawned scripting engine"
+
+  - name: office_spawns_rundll32
+    parents: ["winword.exe", "excel.exe", "powerpnt.exe"]
+    children: ["rundll32.exe", "regsvr32.exe"]
+    severity: high
+    mitre_id: "T1218"
+    description: "Office application spawned system binary"
+
+command_line_rules:
+  - binary: certutil.exe
+    patterns:
+      - pattern: "urlcache.*-f\\s+https?://"
+        severity: high
+        mitre_id: "T1105"
+        description: "Certutil used for file download"
+      - pattern: "-decode"
+        severity: medium
+        mitre_id: "T1140"
+        description: "Certutil used for base64 decode"
+
+  - binary: mshta.exe
+    patterns:
+      - pattern: "https?://"
+        severity: high
+        mitre_id: "T1218.005"
+        description: "MSHTA executing remote HTA"
+      - pattern: "vbscript:|javascript:"
+        severity: high
+        mitre_id: "T1218.005"
+        description: "MSHTA executing inline script"
+
+  - binary: regsvr32.exe
+    patterns:
+      - pattern: "/i:https?://|scrobj\\.dll"
+        severity: high
+        mitre_id: "T1218.010"
+        description: "Regsvr32 Squiblydoo attack"
+
+  - binary: rundll32.exe
+    patterns:
+      - pattern: "javascript:|vbscript:"
+        severity: high
+        mitre_id: "T1218.011"
+        description: "Rundll32 executing script"
+
+  - binary: bitsadmin.exe
+    patterns:
+      - pattern: "/transfer.*https?://"
+        severity: medium
+        mitre_id: "T1197"
+        description: "BITSAdmin used for file download"
+
+  - binary: wmic.exe
+    patterns:
+      - pattern: "process\\s+call\\s+create"
+        severity: medium
+        mitre_id: "T1047"
+        description: "WMIC remote process creation"
+
+  - binary: cmstp.exe
+    patterns:
+      - pattern: "/s\\s+.*\\.inf"
+        severity: high
+        mitre_id: "T1218.003"
+        description: "CMSTP bypass via INF file"
+
+  - binary: msiexec.exe
+    patterns:
+      - pattern: "https?://"
+        severity: medium
+        mitre_id: "T1218.007"
+        description: "Msiexec executing remote MSI"
