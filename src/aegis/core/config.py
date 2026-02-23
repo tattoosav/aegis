@@ -140,6 +140,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "verification_interval_seconds": 60,
         "directories": [],
     },
+    "transport": {
+        "backend": "inprocess",
+    },
     "scheduler": {
         "enabled": True,
         "tick_interval_seconds": 1.0,

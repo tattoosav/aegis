@@ -40,6 +40,8 @@ class AegisCoordinator:
         self._dashboard_service: Any = None
         self._threat_feed_manager: Any = None
         self._feed_health_tracker: Any = None
+        self._transport: Any = None
+        self._sensor_manager: Any = None
         self._sensors: list[Any] = []
 
     # ------------------------------------------------------------------
@@ -332,6 +334,36 @@ class AegisCoordinator:
             logger.info("EventEngine initialised")
         except Exception as exc:
             logger.warning("EventEngine init failed: %s", exc)
+
+        # 11b. Transport
+        try:
+            from aegis.core.transport import create_transport
+
+            self._transport = create_transport(self._config)
+            if self._engine is not None:
+                self._transport.subscribe(
+                    self._engine._on_event,
+                )
+            self._transport.start()
+            logger.info("Transport initialised")
+        except Exception as exc:
+            logger.warning("Transport init failed: %s", exc)
+
+        # 11c. SensorManager
+        if self._transport is not None:
+            try:
+                from aegis.sensors.manager import SensorManager
+
+                self._sensor_manager = SensorManager(
+                    config=self._config,
+                    transport=self._transport,
+                )
+                self._sensor_manager.setup()
+                logger.info("SensorManager initialised")
+            except Exception as exc:
+                logger.warning(
+                    "SensorManager init failed: %s", exc,
+                )
 
         # 12. TaskScheduler
         if self._config.get("scheduler.enabled", True):
@@ -640,6 +672,12 @@ class AegisCoordinator:
                     "Canary deployment failed: %s", exc,
                 )
 
+        if self._sensor_manager is not None:
+            self._sensor_manager.start()
+            self._sensors = list(
+                self._sensor_manager._sensors.values(),
+            )
+
         if self._scheduler is not None:
             self._scheduler.start()
 
@@ -650,12 +688,23 @@ class AegisCoordinator:
         if self._scheduler is not None:
             self._scheduler.stop()
 
+        if self._sensor_manager is not None:
+            self._sensor_manager.stop()
+
         for sensor in self._sensors:
             try:
                 sensor.stop()
             except Exception as exc:
                 logger.warning(
                     "Sensor stop failed: %s", exc,
+                )
+
+        if self._transport is not None:
+            try:
+                self._transport.stop()
+            except Exception as exc:
+                logger.warning(
+                    "Transport stop failed: %s", exc,
                 )
 
         if self._canary_system is not None:
@@ -759,3 +808,13 @@ class AegisCoordinator:
     def feed_health_tracker(self) -> Any:
         """The :class:`FeedHealthTracker`, or ``None``."""
         return self._feed_health_tracker
+
+    @property
+    def transport(self) -> Any:
+        """The :class:`EventTransport`, or ``None``."""
+        return self._transport
+
+    @property
+    def sensor_manager(self) -> Any:
+        """The :class:`SensorManager`, or ``None``."""
+        return self._sensor_manager

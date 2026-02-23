@@ -696,6 +696,15 @@ class DashboardDataService:
     def _collect_sensor_status(self) -> list[dict[str, Any]]:
         """Build sensor status list for the home page."""
         db = self._coordinator.db
+        sm = getattr(self._coordinator, "sensor_manager", None)
+        live_health: dict[str, Any] = {}
+        if sm is not None:
+            try:
+                for name, h in sm.get_all_health().items():
+                    live_health[name] = h.to_dict()
+            except Exception:
+                pass
+
         result: list[dict[str, Any]] = []
         for name in _KEY_SENSORS:
             entry: dict[str, Any] = {
@@ -703,6 +712,19 @@ class DashboardDataService:
                 "status": "unknown",
                 "event_count": 0,
             }
+            # Live health from SensorManager
+            if name in live_health:
+                lh = live_health[name]
+                entry["is_running"] = lh.get("is_running", False)
+                entry["events_emitted"] = lh.get(
+                    "events_emitted", 0,
+                )
+                entry["errors"] = lh.get("errors", 0)
+                if lh.get("is_running"):
+                    entry["status"] = "active"
+                elif lh.get("enabled"):
+                    entry["status"] = "idle"
+            # DB event count
             if db is not None:
                 try:
                     from aegis.core.models import SensorType
@@ -710,7 +732,10 @@ class DashboardDataService:
                     sensor_enum = SensorType(name)
                     count = db.event_count(sensor=sensor_enum)
                     entry["event_count"] = count
-                    entry["status"] = "active" if count > 0 else "idle"
+                    if entry["status"] == "unknown":
+                        entry["status"] = (
+                            "active" if count > 0 else "idle"
+                        )
                 except (ValueError, Exception):
                     pass
             result.append(entry)

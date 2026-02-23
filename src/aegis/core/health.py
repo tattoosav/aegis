@@ -44,6 +44,7 @@ class SystemHealth:
             ("playbooks", self._collect_playbooks),
             ("response_router", self._collect_response_router),
             ("threat_intel", self._collect_threat_intel),
+            ("sensors", self._collect_sensors),
         ]:
             try:
                 result[section] = collector()
@@ -142,6 +143,16 @@ class SystemHealth:
         if rr is None:
             return {}
         return rr.get_stats()
+
+    def _collect_sensors(self) -> dict[str, Any]:
+        sm = self._coordinator.sensor_manager
+        if sm is None:
+            return {}
+        health_map = sm.get_all_health()
+        return {
+            name: h.to_dict()
+            for name, h in health_map.items()
+        }
 
     def _collect_threat_intel(self) -> dict[str, Any]:
         result: dict[str, Any] = {}
