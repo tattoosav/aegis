@@ -43,6 +43,7 @@ class SystemHealth:
             ("database", self._collect_database),
             ("playbooks", self._collect_playbooks),
             ("response_router", self._collect_response_router),
+            ("threat_intel", self._collect_threat_intel),
         ]:
             try:
                 result[section] = collector()
@@ -141,3 +142,18 @@ class SystemHealth:
         if rr is None:
             return {}
         return rr.get_stats()
+
+    def _collect_threat_intel(self) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        tfm = self._coordinator.threat_feed_manager
+        if tfm is not None:
+            result["feed_count"] = len(tfm._feeds)
+            result["ioc_count"] = tfm.ioc_count
+            bloom = getattr(tfm, "_bloom", None)
+            if bloom is not None:
+                result["bloom_size"] = bloom.size
+                result["bloom_count"] = bloom.item_count
+        fht = self._coordinator.feed_health_tracker
+        if fht is not None:
+            result["feed_health"] = fht.get_status()
+        return result

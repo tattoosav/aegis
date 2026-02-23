@@ -182,18 +182,24 @@ class EventEnricher:
                 break  # one match is sufficient
 
     def _enrich_threat_intel(self, event: AegisEvent) -> None:
-        """Check event values against the threat-feed bloom filter."""
-        bloom = getattr(
-            self._threat_feed_manager, "bloom_filter", None,
-        )
-        if bloom is None:
-            return
+        """Check event values against the threat-feed manager.
+
+        Uses ``ThreatFeedManager.lookup()`` which internally checks
+        the Bloom filter for fast rejection and falls back to DB.
+        """
         data = event.data
         for key in _THREAT_INTEL_KEYS:
             value = data.get(key)
             if not value:
                 continue
-            if bloom.check(value):
+            result = self._threat_feed_manager.lookup(value)
+            if result is not None:
                 data["_threat_intel_hit"] = True
+                data["_threat_intel_source"] = result.get(
+                    "source", "",
+                )
+                data["_threat_intel_severity"] = result.get(
+                    "severity", "",
+                )
                 self._threat_intel_hits += 1
                 return  # one hit is enough

@@ -606,6 +606,76 @@ class DashboardDataService:
             "last_verification": last_verification,
         }
 
+    # ------------------------------------------------------------------
+    # 7. Threat intel page
+    # ------------------------------------------------------------------
+
+    def get_threat_intel_data(self) -> dict[str, Any]:
+        """Return threat intelligence feed health and IOC statistics.
+
+        Returns
+        -------
+        dict
+            Keys: ``feed_health``, ``ioc_count``, ``bloom_stats``.
+        """
+        default: dict[str, Any] = {
+            "feed_health": {
+                "total_feeds": 0,
+                "healthy": 0,
+                "stale": 0,
+                "errored": 0,
+                "feeds": [],
+            },
+            "ioc_count": 0,
+            "bloom_stats": None,
+        }
+        if self._coordinator is None:
+            return default
+
+        # Feed health
+        feed_health = dict(default["feed_health"])
+        try:
+            fht = self._coordinator.feed_health_tracker
+            if fht is not None:
+                feed_health = fht.get_status()
+        except Exception:
+            logger.debug(
+                "Failed to get feed health", exc_info=True,
+            )
+
+        # IOC count
+        ioc_count = 0
+        try:
+            tfm = self._coordinator.threat_feed_manager
+            if tfm is not None:
+                ioc_count = tfm.ioc_count
+        except Exception:
+            logger.debug(
+                "Failed to get IOC count", exc_info=True,
+            )
+
+        # Bloom filter stats
+        bloom_stats: dict[str, Any] | None = None
+        try:
+            tfm = self._coordinator.threat_feed_manager
+            if tfm is not None:
+                bloom = getattr(tfm, "_bloom", None)
+                if bloom is not None:
+                    bloom_stats = {
+                        "size": bloom.size,
+                        "count": bloom.item_count,
+                    }
+        except Exception:
+            logger.debug(
+                "Failed to get bloom stats", exc_info=True,
+            )
+
+        return {
+            "feed_health": feed_health,
+            "ioc_count": ioc_count,
+            "bloom_stats": bloom_stats,
+        }
+
     # ==================================================================
     # Private helpers
     # ==================================================================

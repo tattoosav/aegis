@@ -38,6 +38,8 @@ class AegisCoordinator:
         self._execution_store: Any = None
         self._system_health: Any = None
         self._dashboard_service: Any = None
+        self._threat_feed_manager: Any = None
+        self._feed_health_tracker: Any = None
         self._sensors: list[Any] = []
 
     # ------------------------------------------------------------------
@@ -79,11 +81,48 @@ class AegisCoordinator:
                     "WhitelistManager init failed: %s", exc,
                 )
 
-        # 3. EventEnricher
+        # 3. ThreatFeedManager + FeedHealthTracker
+        if self._config.get(
+            "sensors.threat_intel.enabled", True,
+        ):
+            try:
+                from aegis.intelligence.feed_health import (
+                    FeedHealthTracker,
+                )
+                from aegis.intelligence.threat_feeds import (
+                    ThreatFeedManager,
+                )
+
+                self._threat_feed_manager = ThreatFeedManager(
+                    db=self._db,
+                    bloom_size=self._config.get(
+                        "sensors.threat_intel.bloom_size",
+                        1_000_000,
+                    ),
+                )
+                self._feed_health_tracker = FeedHealthTracker(
+                    staleness_threshold_seconds=self._config.get(
+                        "sensors.threat_intel"
+                        ".staleness_threshold_seconds",
+                        7200.0,
+                    ),
+                )
+                self._register_threat_feeds()
+                self._run_feed_update()
+                logger.info("ThreatFeedManager initialised")
+            except Exception as exc:
+                logger.warning(
+                    "ThreatFeedManager init failed: %s", exc,
+                )
+
+        # 3b. EventEnricher
         try:
             from aegis.core.enricher import EventEnricher
 
-            self._enricher = EventEnricher(db=self._db)
+            self._enricher = EventEnricher(
+                db=self._db,
+                threat_feed_manager=self._threat_feed_manager,
+            )
             logger.info("EventEnricher initialised")
         except Exception as exc:
             logger.warning("EventEnricher init failed: %s", exc)
@@ -452,6 +491,134 @@ class AegisCoordinator:
                 interval_seconds=300,
             )
 
+        # Feed refresh
+        if self._threat_feed_manager is not None:
+            feed_interval = self._config.get(
+                "sensors.threat_intel"
+                ".update_interval_minutes",
+                30,
+            ) * 60
+
+            self._scheduler.add_task(
+                name="feed_refresh",
+                callback=self._run_feed_update,
+                interval_seconds=feed_interval,
+            )
+
+        # Feed staleness check — every 5 minutes
+        if self._feed_health_tracker is not None:
+            self._scheduler.add_task(
+                name="feed_staleness_check",
+                callback=(
+                    self._feed_health_tracker.check_staleness
+                ),
+                interval_seconds=300,
+            )
+
+    # ------------------------------------------------------------------
+    # Threat feed helpers
+    # ------------------------------------------------------------------
+
+    def _register_threat_feeds(self) -> None:
+        """Register threat feeds based on configuration."""
+        if self._threat_feed_manager is None:
+            return
+
+        feeds_cfg = self._config.get(
+            "sensors.threat_intel.feeds", {},
+        )
+
+        # PhishTank
+        if isinstance(feeds_cfg, dict) and feeds_cfg.get(
+            "phishtank", {},
+        ).get("enabled", True):
+            try:
+                from aegis.intelligence.threat_feeds import (
+                    PhishTankFeed,
+                )
+                self._threat_feed_manager.register_feed(
+                    PhishTankFeed(),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "PhishTank feed init failed: %s", exc,
+                )
+
+        # AbuseIPDB
+        if isinstance(feeds_cfg, dict) and feeds_cfg.get(
+            "abuseipdb", {},
+        ).get("enabled", False):
+            try:
+                from aegis.intelligence.threat_feeds import (
+                    AbuseIPDBFeed,
+                )
+                api_key = feeds_cfg.get(
+                    "abuseipdb", {},
+                ).get("api_key", "")
+                self._threat_feed_manager.register_feed(
+                    AbuseIPDBFeed(api_key=api_key),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "AbuseIPDB feed init failed: %s", exc,
+                )
+
+        # VirusTotal
+        if isinstance(feeds_cfg, dict) and feeds_cfg.get(
+            "virustotal", {},
+        ).get("enabled", False):
+            try:
+                from aegis.intelligence.threat_feeds import (
+                    VirusTotalFeed,
+                )
+                api_key = feeds_cfg.get(
+                    "virustotal", {},
+                ).get("api_key", "")
+                self._threat_feed_manager.register_feed(
+                    VirusTotalFeed(api_key=api_key),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "VirusTotal feed init failed: %s", exc,
+                )
+
+    def _run_feed_update(self) -> None:
+        """Execute a feed update cycle with health tracking."""
+        if self._threat_feed_manager is None:
+            return
+
+        for feed in self._threat_feed_manager._feeds:
+            try:
+                indicators = feed.fetch()
+                for ioc in indicators:
+                    self._threat_feed_manager._db.upsert_ioc(
+                        ioc_type=ioc.ioc_type,
+                        value=ioc.value,
+                        source=ioc.source,
+                        severity=ioc.severity,
+                        metadata=ioc.metadata,
+                    )
+                    self._threat_feed_manager._bloom.add(
+                        ioc.value,
+                    )
+                if self._feed_health_tracker:
+                    self._feed_health_tracker.record_success(
+                        feed.name, len(indicators),
+                    )
+                logger.info(
+                    "Feed %s: %d indicators",
+                    feed.name, len(indicators),
+                )
+            except Exception as exc:
+                if self._feed_health_tracker:
+                    self._feed_health_tracker.record_failure(
+                        feed.name, str(exc),
+                    )
+                logger.warning(
+                    "Feed %s update failed: %s",
+                    feed.name, exc,
+                )
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -582,3 +749,13 @@ class AegisCoordinator:
     def forensic_logger(self) -> Any:
         """The :class:`ForensicLogger`, or ``None``."""
         return self._forensic_logger
+
+    @property
+    def threat_feed_manager(self) -> Any:
+        """The :class:`ThreatFeedManager`, or ``None``."""
+        return self._threat_feed_manager
+
+    @property
+    def feed_health_tracker(self) -> Any:
+        """The :class:`FeedHealthTracker`, or ``None``."""
+        return self._feed_health_tracker

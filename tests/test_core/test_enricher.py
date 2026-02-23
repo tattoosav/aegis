@@ -291,26 +291,34 @@ class TestFileEnrichment:
 # ===================================================================
 
 class TestThreatIntelEnrichment:
-    """Enrichment via the bloom-filter on the threat_feed_manager."""
+    """Enrichment via ThreatFeedManager.lookup()."""
 
-    def _make_manager(self, bloom_check_result: bool) -> MagicMock:
-        """Build a mock threat_feed_manager with a bloom filter."""
-        bloom = MagicMock()
-        bloom.check.return_value = bloom_check_result
+    def _make_manager(
+        self, lookup_result: dict | None,
+    ) -> MagicMock:
+        """Build a mock threat_feed_manager."""
         manager = MagicMock()
-        manager.bloom_filter = bloom
+        manager.lookup.return_value = lookup_result
         return manager
 
     def test_enrich_threat_intel_hit(self, db):
-        manager = self._make_manager(bloom_check_result=True)
+        manager = self._make_manager(
+            lookup_result={
+                "value": "99.99.99.99",
+                "source": "test-feed",
+                "severity": "high",
+            },
+        )
         e = EventEnricher(db=db, threat_feed_manager=manager)
         event = _make_event(data={"dst_ip": "99.99.99.99"})
         e.enrich(event)
 
         assert event.data["_threat_intel_hit"] is True
+        assert event.data["_threat_intel_source"] == "test-feed"
+        assert event.data["_threat_intel_severity"] == "high"
 
     def test_enrich_threat_intel_no_hit(self, db):
-        manager = self._make_manager(bloom_check_result=False)
+        manager = self._make_manager(lookup_result=None)
         e = EventEnricher(db=db, threat_feed_manager=manager)
         event = _make_event(data={"dst_ip": "1.1.1.1"})
         e.enrich(event)
@@ -322,15 +330,21 @@ class TestThreatIntelEnrichment:
         enricher.enrich(event)
         assert "_threat_intel_hit" not in event.data
 
-    def test_enrich_threat_intel_no_bloom(self, db):
-        manager = MagicMock(spec=[])  # no bloom_filter attr
+    def test_enrich_threat_intel_lookup_returns_none(self, db):
+        manager = self._make_manager(lookup_result=None)
         e = EventEnricher(db=db, threat_feed_manager=manager)
         event = _make_event(data={"dst_ip": "5.5.5.5"})
         e.enrich(event)
         assert "_threat_intel_hit" not in event.data
 
     def test_enrich_threat_intel_increments_stats(self, db):
-        manager = self._make_manager(bloom_check_result=True)
+        manager = self._make_manager(
+            lookup_result={
+                "value": "bad.test",
+                "source": "x",
+                "severity": "high",
+            },
+        )
         e = EventEnricher(db=db, threat_feed_manager=manager)
         event = _make_event(data={"domain": "bad.test"})
         e.enrich(event)
@@ -374,9 +388,7 @@ class TestBestEffortBehavior:
 
     def test_threat_intel_error_swallowed(self):
         manager = MagicMock()
-        bloom = MagicMock()
-        bloom.check.side_effect = RuntimeError("bloom boom")
-        manager.bloom_filter = bloom
+        manager.lookup.side_effect = RuntimeError("lookup boom")
         e = EventEnricher(threat_feed_manager=manager)
         event = _make_event(data={"dst_ip": "1.1.1.1"})
         result = e.enrich(event)
@@ -388,8 +400,7 @@ class TestBestEffortBehavior:
         mock_db.lookup_ioc.side_effect = Exception("total failure")
         mock_db._lock = MagicMock()
         manager = MagicMock()
-        manager.bloom_filter = MagicMock()
-        manager.bloom_filter.check.side_effect = Exception("boom")
+        manager.lookup.side_effect = Exception("boom")
 
         e = EventEnricher(db=mock_db, threat_feed_manager=manager)
         event = _make_event(data={
@@ -464,9 +475,11 @@ class TestEnricherIntegration:
         )
 
         manager = MagicMock()
-        bloom = MagicMock()
-        bloom.check.return_value = True
-        manager.bloom_filter = bloom
+        manager.lookup.return_value = {
+            "value": ip,
+            "source": "net-feed",
+            "severity": "high",
+        }
 
         e = EventEnricher(db=db, threat_feed_manager=manager)
         event = _make_event(data={
