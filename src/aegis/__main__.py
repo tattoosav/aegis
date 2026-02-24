@@ -1,14 +1,16 @@
 """Entry point for Aegis — the AI Security Defense System.
 
-Launches the full stack:
-  1. Configuration
-  2. Event Engine (ZeroMQ bus + database)
-  3. Detection Pipeline (rule engine, anomaly, graph analyzer)
-  4. Alert Manager + Forensic Logger
-  5. PySide6 dashboard + system tray
+Supports three run modes via CLI flags:
 
-Usage:
-    python -m aegis
+  * **gui** (default): full PySide6 dashboard + system tray
+  * **service** (``--service``): delegates to :class:`AegisServiceFramework`
+  * **headless** (``--headless``): coordinator only, no UI
+
+Usage::
+
+    python -m aegis              # GUI mode
+    python -m aegis --service    # Windows service mode
+    python -m aegis --headless   # headless / coordinator-only mode
 """
 
 from __future__ import annotations
@@ -16,96 +18,151 @@ from __future__ import annotations
 import logging
 import signal
 import sys
+import threading
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from aegis import __version__
+from aegis.core.config import AegisConfig
+from aegis.core.coordinator import AegisCoordinator
+
+logger = logging.getLogger("aegis")
 
 
-def main() -> int:
-    """Launch Aegis."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    )
-    logger = logging.getLogger("aegis")
-    logger.info("Aegis v%s starting...", __version__)
+# ------------------------------------------------------------------
+# Logging setup
+# ------------------------------------------------------------------
 
-    # 1. Configuration
-    from aegis.core.config import AegisConfig
+def _setup_logging() -> None:
+    """Configure logging with console and rotating file handler."""
+    log_dir = Path.home() / "AppData" / "Roaming" / "Aegis" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
 
-    config = AegisConfig()
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
 
-    # 2. Detection Pipeline
-    from aegis.detection.pipeline import DetectionPipeline
-
-    pipeline_kwargs: dict = {}
-
-    # Wire in available engines (graceful if any are missing)
-    try:
-        from aegis.detection.rule_engine import RuleEngine
-
-        pipeline_kwargs["rule_engine"] = RuleEngine()
-        logger.info("Rule engine loaded")
-    except Exception:
-        logger.warning("Rule engine not available")
-
-    try:
-        from aegis.detection.anomaly import AnomalyDetector
-
-        pipeline_kwargs["anomaly_detector"] = AnomalyDetector()
-        logger.info("Anomaly detector loaded")
-    except Exception:
-        logger.warning("Anomaly detector not available")
-
-    try:
-        from aegis.detection.graph_analyzer import (
-            ContextGraph,
-            GraphAnalyzer,
-        )
-
-        graph = ContextGraph()
-        pipeline_kwargs["graph_analyzer"] = GraphAnalyzer(graph=graph)
-        logger.info("Graph analyzer loaded")
-    except Exception:
-        logger.warning("Graph analyzer not available")
-
-    pipeline = DetectionPipeline(**pipeline_kwargs)
-
-    # 3. Alert Manager + Forensic Logger
-    from aegis.alerting.manager import AlertManager
-
-    alert_manager = AlertManager()
-
-    # 4. Event Engine
-    from aegis.core.engine import EventEngine
-
-    engine = EventEngine(
-        config=config,
-        detection_pipeline=pipeline,
-        alert_manager=alert_manager,
-    )
-    engine.start()
-
-    # Wire forensic logger after engine starts (needs db)
-    forensic_logger = None
-    if engine.db:
-        from aegis.response.forensic_logger import ForensicLogger
-
-        forensic_logger = ForensicLogger(engine.db)
-        engine._forensic_logger = forensic_logger
-        logger.info("Forensic logger attached")
-
-    logger.info(
-        "Engine started. sensors=%s, pipeline=%s",
-        config.get("sensors.network.enabled"),
-        "active",
+    fmt = logging.Formatter(
+        "%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
 
-    # 5. Launch UI
+    # Console handler
+    console = logging.StreamHandler()
+    console.setFormatter(fmt)
+    root_logger.addHandler(console)
+
+    # Rotating file handler (10 MB, keep 5)
+    file_handler = RotatingFileHandler(
+        log_dir / "aegis.log",
+        maxBytes=10 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(fmt)
+    root_logger.addHandler(file_handler)
+
+
+# ------------------------------------------------------------------
+# Mode detection
+# ------------------------------------------------------------------
+
+def detect_run_mode() -> str:
+    """Determine the run mode from CLI flags.
+
+    Returns:
+        ``"service"`` if ``--service`` is present,
+        ``"headless"`` if ``--headless`` is present,
+        ``"gui"`` otherwise.
+    """
+    if "--service" in sys.argv:
+        return "service"
+    if "--headless" in sys.argv:
+        return "headless"
+    return "gui"
+
+
+# ------------------------------------------------------------------
+# Mode-specific launchers
+# ------------------------------------------------------------------
+
+def _run_service() -> int:
+    """Run Aegis as a Windows service via :class:`AegisServiceFramework`."""
+    from aegis.core.service import AegisServiceFramework
+
+    framework = AegisServiceFramework()
+    framework.start()
+    return 0
+
+
+def _run_headless(config: AegisConfig) -> int:
+    """Run Aegis in headless mode (coordinator only, no UI).
+
+    Blocks on a ``threading.Event`` until SIGINT / SIGTERM is received.
+    """
+    coordinator = AegisCoordinator(config)
+    coordinator.setup()
+    coordinator.start()
+
+    stop_event = threading.Event()
+
+    def _signal_handler(*_args: object) -> None:
+        logger.info("Shutdown signal received")
+        stop_event.set()
+
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
+
+    logger.info("Aegis running in headless mode (Ctrl-C to stop)")
+    stop_event.wait()
+
+    coordinator.stop()
+    logger.info("Aegis shutdown complete")
+    return 0
+
+
+def _run_gui(config: AegisConfig) -> int:
+    """Run Aegis with the full PySide6 dashboard."""
+    coordinator = AegisCoordinator(config)
+    coordinator.setup()
+    coordinator.start()
+
+    engine = coordinator.engine
+
     try:
         from aegis.ui.app import create_app
 
-        app = create_app(db=engine.db, engine=engine)
+        app = create_app(db=coordinator.db, engine=engine)
         logger.info("UI ready — launching dashboard")
+
+        # Wire action executor to alerts page
+        try:
+            from aegis.response.action_executor import ActionExecutor
+
+            action_executor = ActionExecutor()
+            alerts_page = app.window._stack.widget(1)
+            if hasattr(alerts_page, "set_action_executor"):
+                alerts_page.set_action_executor(
+                    action_executor, coordinator.forensic_logger,
+                )
+                logger.info("Action executor wired to alerts page")
+        except Exception as exc:
+            logger.warning("Could not wire action executor: %s", exc)
+
+        # Wire notification system
+        try:
+            from aegis.ui.notifications import NotificationManager
+            from aegis.ui.widgets.fullscreen_alert import (
+                FullscreenAlert,
+            )
+
+            fullscreen_widget = FullscreenAlert(parent=app.window)
+            notification_manager = NotificationManager(
+                tray=app.tray,
+                on_fullscreen=fullscreen_widget.show_alert,
+            )
+            engine._notification_manager = notification_manager
+            logger.info("Notification system wired")
+        except Exception as exc:
+            logger.warning("Could not wire notifications: %s", exc)
 
         # Graceful shutdown on Ctrl-C
         signal.signal(
@@ -117,14 +174,39 @@ def main() -> int:
     except ImportError:
         logger.error(
             "PySide6 not installed — cannot launch UI. "
-            "Running in headless mode."
+            "Running in headless mode.",
         )
         exit_code = 0
     finally:
-        engine.stop()
+        coordinator.stop()
         logger.info("Aegis shutdown complete")
 
     return exit_code
+
+
+# ------------------------------------------------------------------
+# Main entry point
+# ------------------------------------------------------------------
+
+def main() -> int:
+    """Launch Aegis in the detected run mode."""
+    _setup_logging()
+    mode = detect_run_mode()
+    logger.info("Aegis v%s starting in %s mode...", __version__, mode)
+
+    if mode == "service":
+        return _run_service()
+
+    config_path = (
+        Path.home() / "AppData" / "Roaming" / "Aegis" / "config.yaml"
+    )
+    config = AegisConfig.load(config_path)
+    logger.info("Config loaded from %s", config_path)
+
+    if mode == "headless":
+        return _run_headless(config)
+
+    return _run_gui(config)
 
 
 if __name__ == "__main__":
