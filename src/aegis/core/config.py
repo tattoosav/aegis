@@ -64,6 +64,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "enabled": True,
             "scan_interval_seconds": 5,
         },
+        "sensitivity": "medium",  # low, medium, high
     },
     "alerting": {
         "notification_sound": True,
@@ -87,6 +88,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "baseline": {
         "learning_period_days": 7,
         "status": "not_started",
+    },
+    "first_run_complete": False,
+    "exclusions": {
+        "processes": [],
+        "directories": [],
+        "ips": [],
+    },
+    "sysmon": {
+        "installed": False,
+        "config_path": "",
     },
 }
 

@@ -58,3 +58,23 @@ class TestAegisConfig:
         assert config.get("sensors.network.enabled") is False
         assert config.get("sensors.process.enabled") is True
         assert config.get("performance.cpu_limit_percent") == 15
+
+
+class TestFirstRunConfig:
+    def test_first_run_complete_default_false(self):
+        config = AegisConfig()
+        assert config.get("first_run_complete") is False
+
+    def test_exclusions_default_empty(self):
+        config = AegisConfig()
+        assert config.get("exclusions.processes") == []
+        assert config.get("exclusions.directories") == []
+        assert config.get("exclusions.ips") == []
+
+    def test_sysmon_installed_default_false(self):
+        config = AegisConfig()
+        assert config.get("sysmon.installed") is False
+
+    def test_sensitivity_default_medium(self):
+        config = AegisConfig()
+        assert config.get("detection.sensitivity") == "medium"
