@@ -61,13 +61,6 @@ class EventEngine:
         self._detection_pipeline = detection_pipeline
         self._alert_manager = alert_manager
         self._forensic_logger = forensic_logger
-        self._notification_manager: Any = None
-        self._enricher: Any = None
-        self._correlation_engine: Any = None
-        self._incident_store: Any = None
-        self._playbook_engine: Any = None
-        self._report_generator: Any = None
-        self._response_router: Any = None
         self._bus: EventBus | None = None
         self._subscriber: EventSubscriber | None = None
         self._db: AegisDatabase | None = None
@@ -137,17 +130,7 @@ class EventEngine:
             if self._db:
                 self._db.insert_event(event)
 
-            # 2. Enrich event (best-effort)
-            if self._enricher is not None:
-                try:
-                    self._enricher.enrich(event)
-                except Exception:
-                    logger.debug(
-                        "Enrichment failed for %s", event.event_id,
-                        exc_info=True,
-                    )
-
-            # 3. Feed to detection pipeline
+            # 2. Feed to detection pipeline
             if self._detection_pipeline:
                 try:
                     alerts = self._detection_pipeline.process_event(event)
@@ -198,32 +181,6 @@ class EventEngine:
                     )
                 except Exception as exc:
                     logger.error("Forensic log error: %s", exc)
-
-            # 4c. Correlation — group into incidents
-            incident = None
-            if self._incident_store is not None:
-                try:
-                    incident = self._incident_store.process_alert(
-                        processed,
-                    )
-                except Exception as exc:
-                    logger.error("Correlation failed: %s", exc)
-
-            # 4d. Response routing — playbooks + reports
-            if self._response_router is not None:
-                try:
-                    self._response_router.route_alert(
-                        processed, incident,
-                    )
-                except Exception as exc:
-                    logger.error("Response routing failed: %s", exc)
-
-            # 4e. Route to notification channel
-            if self._notification_manager:
-                try:
-                    self._notification_manager.notify(processed)
-                except Exception as exc:
-                    logger.error("Notification failed: %s", exc)
 
             with self._lock:
                 self._alerts_generated += 1

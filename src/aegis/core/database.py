@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -104,52 +103,6 @@ CREATE TABLE IF NOT EXISTS ioc_indicators (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ioc_type_value ON ioc_indicators(ioc_type, value);
 CREATE INDEX IF NOT EXISTS idx_ioc_value ON ioc_indicators(value);
 
-CREATE TABLE IF NOT EXISTS incidents (
-    incident_id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    severity TEXT NOT NULL DEFAULT 'medium',
-    status TEXT NOT NULL DEFAULT 'open',
-    mitre_chain TEXT NOT NULL DEFAULT '[]',
-    entities TEXT NOT NULL DEFAULT '[]',
-    first_seen REAL NOT NULL,
-    last_seen REAL NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status);
-CREATE INDEX IF NOT EXISTS idx_incidents_severity ON incidents(severity);
-
-CREATE TABLE IF NOT EXISTS incident_alerts (
-    incident_id TEXT NOT NULL,
-    alert_id TEXT NOT NULL,
-    PRIMARY KEY (incident_id, alert_id)
-);
-CREATE INDEX IF NOT EXISTS idx_incident_alerts_incident ON incident_alerts(incident_id);
-
-CREATE TABLE IF NOT EXISTS playbook_executions (
-    execution_id TEXT PRIMARY KEY,
-    playbook_id TEXT NOT NULL,
-    playbook_name TEXT NOT NULL,
-    alert_id TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'running',
-    started_at REAL NOT NULL,
-    completed_at REAL,
-    current_step INTEGER NOT NULL DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_pb_exec_status ON playbook_executions(status);
-CREATE INDEX IF NOT EXISTS idx_pb_exec_alert ON playbook_executions(alert_id);
-
-CREATE TABLE IF NOT EXISTS playbook_execution_steps (
-    execution_id TEXT NOT NULL,
-    step_index INTEGER NOT NULL,
-    step_id TEXT NOT NULL,
-    action TEXT NOT NULL,
-    target TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'pending',
-    started_at REAL,
-    completed_at REAL,
-    result_message TEXT NOT NULL DEFAULT '',
-    PRIMARY KEY (execution_id, step_index)
-);
-
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp REAL NOT NULL,
@@ -170,7 +123,6 @@ class AegisDatabase:
     def __init__(self, db_path: str | Path):
         self._path = Path(db_path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.Lock()
         self._conn = sqlite3.connect(str(self._path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -180,45 +132,40 @@ class AegisDatabase:
 
     @property
     def journal_mode(self) -> str:
-        with self._lock:
-            cursor = self._conn.execute("PRAGMA journal_mode")
-            return cursor.fetchone()[0]
+        cursor = self._conn.execute("PRAGMA journal_mode")
+        return cursor.fetchone()[0]
 
     def close(self) -> None:
-        with self._lock:
-            self._conn.close()
+        self._conn.close()
 
     def list_tables(self) -> list[str]:
-        with self._lock:
-            cursor = self._conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-            )
-            return [row[0] for row in cursor.fetchall()]
+        cursor = self._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        )
+        return [row[0] for row in cursor.fetchall()]
 
     # --- Events ---
 
     def insert_event(self, event: AegisEvent) -> None:
-        with self._lock:
-            self._conn.execute(
-                "INSERT INTO events (event_id, timestamp, sensor, event_type, severity, data) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    event.event_id,
-                    event.timestamp,
-                    event.sensor.value,
-                    event.event_type,
-                    event.severity.value,
-                    json.dumps(event.data),
-                ),
-            )
-            self._conn.commit()
+        self._conn.execute(
+            "INSERT INTO events (event_id, timestamp, sensor, event_type, severity, data) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                event.event_id,
+                event.timestamp,
+                event.sensor.value,
+                event.event_type,
+                event.severity.value,
+                json.dumps(event.data),
+            ),
+        )
+        self._conn.commit()
 
     def get_event(self, event_id: str) -> AegisEvent | None:
-        with self._lock:
-            cursor = self._conn.execute(
-                "SELECT * FROM events WHERE event_id = ?", (event_id,)
-            )
-            row = cursor.fetchone()
+        cursor = self._conn.execute(
+            "SELECT * FROM events WHERE event_id = ?", (event_id,)
+        )
+        row = cursor.fetchone()
         if row is None:
             return None
         return self._row_to_event(row)
@@ -239,19 +186,17 @@ class AegisDatabase:
             params.append(since)
         query += " ORDER BY timestamp DESC LIMIT ?"
         params.append(limit)
-        with self._lock:
-            cursor = self._conn.execute(query, params)
-            return [self._row_to_event(row) for row in cursor.fetchall()]
+        cursor = self._conn.execute(query, params)
+        return [self._row_to_event(row) for row in cursor.fetchall()]
 
     def event_count(self, sensor: SensorType | None = None) -> int:
-        with self._lock:
-            if sensor is not None:
-                cursor = self._conn.execute(
-                    "SELECT COUNT(*) FROM events WHERE sensor = ?", (sensor.value,)
-                )
-            else:
-                cursor = self._conn.execute("SELECT COUNT(*) FROM events")
-            return cursor.fetchone()[0]
+        if sensor is not None:
+            cursor = self._conn.execute(
+                "SELECT COUNT(*) FROM events WHERE sensor = ?", (sensor.value,)
+            )
+        else:
+            cursor = self._conn.execute("SELECT COUNT(*) FROM events")
+        return cursor.fetchone()[0]
 
     def _row_to_event(self, row: sqlite3.Row) -> AegisEvent:
         return AegisEvent(
@@ -266,39 +211,37 @@ class AegisDatabase:
     # --- Alerts ---
 
     def insert_alert(self, alert: Alert) -> None:
-        with self._lock:
-            self._conn.execute(
-                "INSERT INTO alerts "
-                "(alert_id, event_id, timestamp, sensor, alert_type, severity, "
-                "title, description, confidence, status, data, mitre_ids, "
-                "recommended_actions, priority_score, dismiss_count) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    alert.alert_id,
-                    alert.event_id,
-                    alert.timestamp,
-                    alert.sensor.value,
-                    alert.alert_type,
-                    alert.severity.value,
-                    alert.title,
-                    alert.description,
-                    alert.confidence,
-                    alert.status.value,
-                    json.dumps(alert.data),
-                    json.dumps(alert.mitre_ids),
-                    json.dumps(alert.recommended_actions),
-                    alert.priority_score,
-                    alert.dismiss_count,
-                ),
-            )
-            self._conn.commit()
+        self._conn.execute(
+            "INSERT INTO alerts "
+            "(alert_id, event_id, timestamp, sensor, alert_type, severity, "
+            "title, description, confidence, status, data, mitre_ids, "
+            "recommended_actions, priority_score, dismiss_count) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                alert.alert_id,
+                alert.event_id,
+                alert.timestamp,
+                alert.sensor.value,
+                alert.alert_type,
+                alert.severity.value,
+                alert.title,
+                alert.description,
+                alert.confidence,
+                alert.status.value,
+                json.dumps(alert.data),
+                json.dumps(alert.mitre_ids),
+                json.dumps(alert.recommended_actions),
+                alert.priority_score,
+                alert.dismiss_count,
+            ),
+        )
+        self._conn.commit()
 
     def get_alert(self, alert_id: str) -> Alert | None:
-        with self._lock:
-            cursor = self._conn.execute(
-                "SELECT * FROM alerts WHERE alert_id = ?", (alert_id,)
-            )
-            row = cursor.fetchone()
+        cursor = self._conn.execute(
+            "SELECT * FROM alerts WHERE alert_id = ?", (alert_id,)
+        )
+        row = cursor.fetchone()
         if row is None:
             return None
         return self._row_to_alert(row)
@@ -319,27 +262,24 @@ class AegisDatabase:
             params.append(severity.value)
         query += " ORDER BY timestamp DESC LIMIT ?"
         params.append(limit)
-        with self._lock:
-            cursor = self._conn.execute(query, params)
-            return [self._row_to_alert(row) for row in cursor.fetchall()]
+        cursor = self._conn.execute(query, params)
+        return [self._row_to_alert(row) for row in cursor.fetchall()]
 
     def update_alert_status(self, alert_id: str, status: AlertStatus) -> None:
-        with self._lock:
-            self._conn.execute(
-                "UPDATE alerts SET status = ? WHERE alert_id = ?",
-                (status.value, alert_id),
-            )
-            self._conn.commit()
+        self._conn.execute(
+            "UPDATE alerts SET status = ? WHERE alert_id = ?",
+            (status.value, alert_id),
+        )
+        self._conn.commit()
 
     def alert_count(self, severity: Severity | None = None) -> int:
-        with self._lock:
-            if severity is not None:
-                cursor = self._conn.execute(
-                    "SELECT COUNT(*) FROM alerts WHERE severity = ?", (severity.value,)
-                )
-            else:
-                cursor = self._conn.execute("SELECT COUNT(*) FROM alerts")
-            return cursor.fetchone()[0]
+        if severity is not None:
+            cursor = self._conn.execute(
+                "SELECT COUNT(*) FROM alerts WHERE severity = ?", (severity.value,)
+            )
+        else:
+            cursor = self._conn.execute("SELECT COUNT(*) FROM alerts")
+        return cursor.fetchone()[0]
 
     def _row_to_alert(self, row: sqlite3.Row) -> Alert:
         return Alert(
@@ -362,29 +302,27 @@ class AegisDatabase:
     # --- Audit Log ---
 
     def audit(self, component: str, action: str, detail: str = "") -> None:
-        with self._lock:
-            self._conn.execute(
-                "INSERT INTO audit_log (timestamp, component, action, detail) "
-                "VALUES (?, ?, ?, ?)",
-                (time.time(), component, action, detail),
-            )
-            self._conn.commit()
+        self._conn.execute(
+            "INSERT INTO audit_log (timestamp, component, action, detail) "
+            "VALUES (?, ?, ?, ?)",
+            (time.time(), component, action, detail),
+        )
+        self._conn.commit()
 
     def get_audit_log(self, limit: int = 50) -> list[dict[str, Any]]:
-        with self._lock:
-            cursor = self._conn.execute(
-                "SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT ?", (limit,)
-            )
-            return [
-                {
-                    "id": row["id"],
-                    "timestamp": row["timestamp"],
-                    "component": row["component"],
-                    "action": row["action"],
-                    "detail": row["detail"],
-                }
-                for row in cursor.fetchall()
-            ]
+        cursor = self._conn.execute(
+            "SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT ?", (limit,)
+        )
+        return [
+            {
+                "id": row["id"],
+                "timestamp": row["timestamp"],
+                "component": row["component"],
+                "action": row["action"],
+                "detail": row["detail"],
+            }
+            for row in cursor.fetchall()
+        ]
 
     # --- IOC Indicators ---
 
@@ -398,35 +336,33 @@ class AegisDatabase:
     ) -> None:
         """Insert or update an IOC indicator."""
         now = time.time()
-        with self._lock:
-            self._conn.execute(
-                "INSERT INTO ioc_indicators "
-                "(ioc_type, value, source, severity, first_seen, last_updated, metadata) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(ioc_type, value) DO UPDATE SET "
-                "severity = excluded.severity, "
-                "last_updated = excluded.last_updated, "
-                "metadata = excluded.metadata",
-                (
-                    ioc_type,
-                    value,
-                    source,
-                    severity,
-                    now,
-                    now,
-                    json.dumps(metadata or {}),
-                ),
-            )
-            self._conn.commit()
+        self._conn.execute(
+            "INSERT INTO ioc_indicators "
+            "(ioc_type, value, source, severity, first_seen, last_updated, metadata) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(ioc_type, value) DO UPDATE SET "
+            "severity = excluded.severity, "
+            "last_updated = excluded.last_updated, "
+            "metadata = excluded.metadata",
+            (
+                ioc_type,
+                value,
+                source,
+                severity,
+                now,
+                now,
+                json.dumps(metadata or {}),
+            ),
+        )
+        self._conn.commit()
 
     def lookup_ioc(self, ioc_type: str, value: str) -> dict[str, Any] | None:
         """Look up a single IOC by type and value."""
-        with self._lock:
-            cursor = self._conn.execute(
-                "SELECT * FROM ioc_indicators WHERE ioc_type = ? AND value = ?",
-                (ioc_type, value),
-            )
-            row = cursor.fetchone()
+        cursor = self._conn.execute(
+            "SELECT * FROM ioc_indicators WHERE ioc_type = ? AND value = ?",
+            (ioc_type, value),
+        )
+        row = cursor.fetchone()
         if row is None:
             return None
         return {
@@ -442,437 +378,31 @@ class AegisDatabase:
 
     def lookup_ioc_by_value(self, value: str) -> list[dict[str, Any]]:
         """Look up all IOC entries matching a value (any type)."""
-        with self._lock:
-            cursor = self._conn.execute(
-                "SELECT * FROM ioc_indicators WHERE value = ?", (value,)
-            )
-            return [
-                {
-                    "id": row["id"],
-                    "ioc_type": row["ioc_type"],
-                    "value": row["value"],
-                    "source": row["source"],
-                    "severity": row["severity"],
-                    "first_seen": row["first_seen"],
-                    "last_updated": row["last_updated"],
-                    "metadata": json.loads(row["metadata"]),
-                }
-                for row in cursor.fetchall()
-            ]
+        cursor = self._conn.execute(
+            "SELECT * FROM ioc_indicators WHERE value = ?", (value,)
+        )
+        return [
+            {
+                "id": row["id"],
+                "ioc_type": row["ioc_type"],
+                "value": row["value"],
+                "source": row["source"],
+                "severity": row["severity"],
+                "first_seen": row["first_seen"],
+                "last_updated": row["last_updated"],
+                "metadata": json.loads(row["metadata"]),
+            }
+            for row in cursor.fetchall()
+        ]
 
     def get_all_ioc_values(self) -> list[str]:
         """Return all IOC values (for Bloom filter rebuild)."""
-        with self._lock:
-            cursor = self._conn.execute(
-                "SELECT DISTINCT value FROM ioc_indicators"
-            )
-            return [row[0] for row in cursor.fetchall()]
+        cursor = self._conn.execute(
+            "SELECT DISTINCT value FROM ioc_indicators"
+        )
+        return [row[0] for row in cursor.fetchall()]
 
     def ioc_count(self) -> int:
         """Count total IOC indicators."""
-        with self._lock:
-            cursor = self._conn.execute("SELECT COUNT(*) FROM ioc_indicators")
-            return cursor.fetchone()[0]
-
-    # --- Incidents ---
-
-    def insert_incident(
-        self,
-        incident_id: str,
-        title: str,
-        severity: str,
-        status: str,
-        mitre_chain: list[str],
-        entities: list[str],
-        first_seen: float,
-        last_seen: float,
-    ) -> None:
-        """Insert a new incident."""
-        with self._lock:
-            self._conn.execute(
-                "INSERT INTO incidents "
-                "(incident_id, title, severity, status, mitre_chain, "
-                "entities, first_seen, last_seen) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    incident_id,
-                    title,
-                    severity,
-                    status,
-                    json.dumps(mitre_chain),
-                    json.dumps(entities),
-                    first_seen,
-                    last_seen,
-                ),
-            )
-            self._conn.commit()
-
-    def update_incident(
-        self,
-        incident_id: str,
-        title: str | None = None,
-        severity: str | None = None,
-        status: str | None = None,
-        mitre_chain: list[str] | None = None,
-        entities: list[str] | None = None,
-        last_seen: float | None = None,
-    ) -> bool:
-        """Update an existing incident. Returns True if found."""
-        parts: list[str] = []
-        params: list[Any] = []
-        if title is not None:
-            parts.append("title = ?")
-            params.append(title)
-        if severity is not None:
-            parts.append("severity = ?")
-            params.append(severity)
-        if status is not None:
-            parts.append("status = ?")
-            params.append(status)
-        if mitre_chain is not None:
-            parts.append("mitre_chain = ?")
-            params.append(json.dumps(mitre_chain))
-        if entities is not None:
-            parts.append("entities = ?")
-            params.append(json.dumps(entities))
-        if last_seen is not None:
-            parts.append("last_seen = ?")
-            params.append(last_seen)
-        if not parts:
-            return False
-        params.append(incident_id)
-        with self._lock:
-            cursor = self._conn.execute(
-                f"UPDATE incidents SET {', '.join(parts)} "
-                "WHERE incident_id = ?",
-                params,
-            )
-            self._conn.commit()
-            return cursor.rowcount > 0
-
-    def get_incident(self, incident_id: str) -> dict[str, Any] | None:
-        """Return an incident by ID, or None."""
-        with self._lock:
-            cursor = self._conn.execute(
-                "SELECT * FROM incidents WHERE incident_id = ?",
-                (incident_id,),
-            )
-            row = cursor.fetchone()
-        if row is None:
-            return None
-        return self._row_to_incident(row)
-
-    def query_incidents(
-        self,
-        status: str | None = None,
-        severity: str | None = None,
-        limit: int = 100,
-    ) -> list[dict[str, Any]]:
-        """Query incidents with optional filters."""
-        query = "SELECT * FROM incidents WHERE 1=1"
-        params: list[Any] = []
-        if status is not None:
-            query += " AND status = ?"
-            params.append(status)
-        if severity is not None:
-            query += " AND severity = ?"
-            params.append(severity)
-        query += " ORDER BY last_seen DESC LIMIT ?"
-        params.append(limit)
-        with self._lock:
-            cursor = self._conn.execute(query, params)
-            return [self._row_to_incident(row) for row in cursor.fetchall()]
-
-    def add_alert_to_incident(
-        self, incident_id: str, alert_id: str,
-    ) -> None:
-        """Link an alert to an incident."""
-        with self._lock:
-            self._conn.execute(
-                "INSERT OR IGNORE INTO incident_alerts "
-                "(incident_id, alert_id) VALUES (?, ?)",
-                (incident_id, alert_id),
-            )
-            self._conn.commit()
-
-    def get_incident_alerts(self, incident_id: str) -> list[str]:
-        """Return alert IDs associated with an incident."""
-        with self._lock:
-            cursor = self._conn.execute(
-                "SELECT alert_id FROM incident_alerts "
-                "WHERE incident_id = ?",
-                (incident_id,),
-            )
-            return [row[0] for row in cursor.fetchall()]
-
-    def incident_count(self, status: str | None = None) -> int:
-        """Count incidents, optionally filtered by status."""
-        with self._lock:
-            if status is not None:
-                cursor = self._conn.execute(
-                    "SELECT COUNT(*) FROM incidents WHERE status = ?",
-                    (status,),
-                )
-            else:
-                cursor = self._conn.execute(
-                    "SELECT COUNT(*) FROM incidents",
-                )
-            return cursor.fetchone()[0]
-
-    def _row_to_incident(self, row: sqlite3.Row) -> dict[str, Any]:
-        return {
-            "incident_id": row["incident_id"],
-            "title": row["title"],
-            "severity": row["severity"],
-            "status": row["status"],
-            "mitre_chain": json.loads(row["mitre_chain"]),
-            "entities": json.loads(row["entities"]),
-            "first_seen": row["first_seen"],
-            "last_seen": row["last_seen"],
-        }
-
-    # --- Playbook Executions ---
-
-    def insert_execution(
-        self,
-        execution_id: str,
-        playbook_id: str,
-        playbook_name: str,
-        alert_id: str,
-        status: str = "running",
-        started_at: float = 0.0,
-        current_step: int = 0,
-    ) -> None:
-        """Insert a new playbook execution."""
-        with self._lock:
-            self._conn.execute(
-                "INSERT INTO playbook_executions "
-                "(execution_id, playbook_id, playbook_name, "
-                "alert_id, status, started_at, current_step) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (
-                    execution_id,
-                    playbook_id,
-                    playbook_name,
-                    alert_id,
-                    status,
-                    started_at or time.time(),
-                    current_step,
-                ),
-            )
-            self._conn.commit()
-
-    def update_execution(
-        self,
-        execution_id: str,
-        status: str | None = None,
-        completed_at: float | None = None,
-        current_step: int | None = None,
-    ) -> bool:
-        """Update a playbook execution. Returns True if found."""
-        parts: list[str] = []
-        params: list[Any] = []
-        if status is not None:
-            parts.append("status = ?")
-            params.append(status)
-        if completed_at is not None:
-            parts.append("completed_at = ?")
-            params.append(completed_at)
-        if current_step is not None:
-            parts.append("current_step = ?")
-            params.append(current_step)
-        if not parts:
-            return False
-        params.append(execution_id)
-        with self._lock:
-            cursor = self._conn.execute(
-                f"UPDATE playbook_executions "
-                f"SET {', '.join(parts)} "
-                "WHERE execution_id = ?",
-                params,
-            )
-            self._conn.commit()
-            return cursor.rowcount > 0
-
-    def get_execution(
-        self, execution_id: str,
-    ) -> dict[str, Any] | None:
-        """Return a playbook execution by ID, or None."""
-        with self._lock:
-            cursor = self._conn.execute(
-                "SELECT * FROM playbook_executions "
-                "WHERE execution_id = ?",
-                (execution_id,),
-            )
-            row = cursor.fetchone()
-        if row is None:
-            return None
-        return {
-            "execution_id": row["execution_id"],
-            "playbook_id": row["playbook_id"],
-            "playbook_name": row["playbook_name"],
-            "alert_id": row["alert_id"],
-            "status": row["status"],
-            "started_at": row["started_at"],
-            "completed_at": row["completed_at"],
-            "current_step": row["current_step"],
-        }
-
-    def query_executions(
-        self,
-        status: str | None = None,
-        alert_id: str | None = None,
-        limit: int = 100,
-    ) -> list[dict[str, Any]]:
-        """Query playbook executions with optional filters."""
-        query = "SELECT * FROM playbook_executions WHERE 1=1"
-        params: list[Any] = []
-        if status is not None:
-            query += " AND status = ?"
-            params.append(status)
-        if alert_id is not None:
-            query += " AND alert_id = ?"
-            params.append(alert_id)
-        query += " ORDER BY started_at DESC LIMIT ?"
-        params.append(limit)
-        with self._lock:
-            cursor = self._conn.execute(query, params)
-            return [
-                {
-                    "execution_id": r["execution_id"],
-                    "playbook_id": r["playbook_id"],
-                    "playbook_name": r["playbook_name"],
-                    "alert_id": r["alert_id"],
-                    "status": r["status"],
-                    "started_at": r["started_at"],
-                    "completed_at": r["completed_at"],
-                    "current_step": r["current_step"],
-                }
-                for r in cursor.fetchall()
-            ]
-
-    def execution_count(self, status: str | None = None) -> int:
-        """Count playbook executions."""
-        with self._lock:
-            if status is not None:
-                cursor = self._conn.execute(
-                    "SELECT COUNT(*) FROM playbook_executions "
-                    "WHERE status = ?",
-                    (status,),
-                )
-            else:
-                cursor = self._conn.execute(
-                    "SELECT COUNT(*) FROM playbook_executions",
-                )
-            return cursor.fetchone()[0]
-
-    def insert_execution_step(
-        self,
-        execution_id: str,
-        step_index: int,
-        step_id: str,
-        action: str,
-        target: str = "",
-        status: str = "pending",
-    ) -> None:
-        """Insert a playbook execution step."""
-        with self._lock:
-            self._conn.execute(
-                "INSERT OR REPLACE INTO playbook_execution_steps "
-                "(execution_id, step_index, step_id, action, "
-                "target, status) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    execution_id,
-                    step_index,
-                    step_id,
-                    action,
-                    target,
-                    status,
-                ),
-            )
-            self._conn.commit()
-
-    def update_execution_step(
-        self,
-        execution_id: str,
-        step_index: int,
-        status: str | None = None,
-        started_at: float | None = None,
-        completed_at: float | None = None,
-        result_message: str | None = None,
-    ) -> bool:
-        """Update a playbook execution step. Returns True if found."""
-        parts: list[str] = []
-        params: list[Any] = []
-        if status is not None:
-            parts.append("status = ?")
-            params.append(status)
-        if started_at is not None:
-            parts.append("started_at = ?")
-            params.append(started_at)
-        if completed_at is not None:
-            parts.append("completed_at = ?")
-            params.append(completed_at)
-        if result_message is not None:
-            parts.append("result_message = ?")
-            params.append(result_message)
-        if not parts:
-            return False
-        params.extend([execution_id, step_index])
-        with self._lock:
-            cursor = self._conn.execute(
-                f"UPDATE playbook_execution_steps "
-                f"SET {', '.join(parts)} "
-                "WHERE execution_id = ? AND step_index = ?",
-                params,
-            )
-            self._conn.commit()
-            return cursor.rowcount > 0
-
-    def get_execution_steps(
-        self, execution_id: str,
-    ) -> list[dict[str, Any]]:
-        """Return all steps for a playbook execution."""
-        with self._lock:
-            cursor = self._conn.execute(
-                "SELECT * FROM playbook_execution_steps "
-                "WHERE execution_id = ? ORDER BY step_index",
-                (execution_id,),
-            )
-            return [
-                {
-                    "execution_id": r["execution_id"],
-                    "step_index": r["step_index"],
-                    "step_id": r["step_id"],
-                    "action": r["action"],
-                    "target": r["target"],
-                    "status": r["status"],
-                    "started_at": r["started_at"],
-                    "completed_at": r["completed_at"],
-                    "result_message": r["result_message"],
-                }
-                for r in cursor.fetchall()
-            ]
-
-    # --- Retention cleanup ---
-
-    def purge_old_events(self, retention_days: int) -> int:
-        """Delete events older than retention_days. Returns count deleted."""
-        cutoff = time.time() - (retention_days * 86400)
-        with self._lock:
-            cursor = self._conn.execute(
-                "DELETE FROM events WHERE timestamp < ?", (cutoff,),
-            )
-            self._conn.commit()
-            return cursor.rowcount
-
-    def purge_old_alerts(self, retention_days: int) -> int:
-        """Delete alerts older than retention_days. Returns count deleted."""
-        cutoff = time.time() - (retention_days * 86400)
-        with self._lock:
-            cursor = self._conn.execute(
-                "DELETE FROM alerts WHERE timestamp < ?", (cutoff,),
-            )
-            self._conn.commit()
-            return cursor.rowcount
+        cursor = self._conn.execute("SELECT COUNT(*) FROM ioc_indicators")
+        return cursor.fetchone()[0]

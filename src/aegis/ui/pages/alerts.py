@@ -10,7 +10,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QComboBox,
-    QDialog,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -70,15 +69,8 @@ class AlertsPage(QWidget):
         self._db = db
         self._alerts: list[Alert] = []
         self._selected_alert: Alert | None = None
-        self._executor = None
-        self._forensic_logger = None
         self._setup_ui()
         self.refresh()
-
-    def set_action_executor(self, executor, forensic_logger=None) -> None:
-        """Wire an ActionExecutor for user-approved response actions."""
-        self._executor = executor
-        self._forensic_logger = forensic_logger
 
     # ------------------------------------------------------------------
     # UI Construction
@@ -302,9 +294,8 @@ class AlertsPage(QWidget):
         self, row: int, alert: Alert
     ) -> None:
         """Write a single Alert into *row* of the table."""
-        # Severity — store alert_id in UserRole for post-sort lookup
+        # Severity
         sev_item = QTableWidgetItem(alert.severity.value.upper())
-        sev_item.setData(Qt.ItemDataRole.UserRole, alert.alert_id)
         color = _SEVERITY_COLORS.get(alert.severity, "#78909c")
         sev_item.setForeground(QColor(color))
         sev_font = QFont()
@@ -403,17 +394,11 @@ class AlertsPage(QWidget):
 
     def _on_row_selected(self, row: int, col: int) -> None:
         """Show the detail panel for the alert in *row*."""
-        item = self._table.item(row, 0)
-        if item is None:
+        if row < 0 or row >= len(self._alerts):
             self._detail_frame.setVisible(False)
             return
-        alert_id = item.data(Qt.ItemDataRole.UserRole)
-        alert = next(
-            (a for a in self._alerts if a.alert_id == alert_id), None
-        )
-        if alert is None:
-            self._detail_frame.setVisible(False)
-            return
+
+        alert = self._alerts[row]
         self._selected_alert = alert
 
         self._detail_title.setText(alert.title)
@@ -446,31 +431,8 @@ class AlertsPage(QWidget):
         self.refresh()
 
     def _on_investigate(self) -> None:
-        """Mark the selected alert as Investigating and show action dialog."""
+        """Mark the selected alert as Investigating."""
         self._update_selected_status(AlertStatus.INVESTIGATING)
-
-        if self._executor and self._selected_alert:
-            alert = self._selected_alert
-            if alert.recommended_actions:
-                from aegis.ui.widgets.action_approval_dialog import (
-                    ActionApprovalDialog,
-                )
-
-                for action_str in alert.recommended_actions:
-                    parts = action_str.split(":", 1)
-                    action_type = parts[0].strip()
-                    target = parts[1].strip() if len(parts) > 1 else ""
-                    preview = self._executor.preview_action(
-                        action_type, target
-                    )
-                    dialog = ActionApprovalDialog(parent=self)
-                    dialog.show_preview(alert.alert_id, preview)
-                    if dialog.result() == QDialog.DialogCode.Accepted:
-                        result = self._executor.execute_action(preview)
-                        logger.info(
-                            "Action %s: %s",
-                            result.action_type, result.message,
-                        )
 
     def _on_dismiss(self) -> None:
         """Mark the selected alert as Dismissed."""

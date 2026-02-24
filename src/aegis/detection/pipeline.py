@@ -4,8 +4,7 @@ Implements the cascade + parallel detection flow from the design document:
 
 1. Rule Engine (fast path — known threat signatures)
 2. Isolation Forest → Autoencoder cascade (statistical → deep anomaly)
-3. Parallel engines: LSTM, URL Classifier, Graph Analyzer, Memory Forensics,
-   Encrypted Traffic, Fileless Detector
+3. Parallel engines: LSTM, URL Classifier, Graph Analyzer, Memory Forensics
 
 The pipeline is **detection only** — it produces Alert objects that are
 presented to the user in the UI.  No response action is ever triggered
@@ -63,10 +62,6 @@ class DetectionPipeline:
         Instance with ``add_event(event)``, ``analyze() -> list[ChainMatch]``.
     memory_forensics:
         Instance with ``analyze_event(event) -> list[Alert]``.
-    encrypted_traffic:
-        Instance with ``analyze_event(event) -> list[Alert]``.
-    fileless_detector:
-        Instance with ``analyze_event(event) -> list[Alert]``.
     """
 
     def __init__(
@@ -81,8 +76,6 @@ class DetectionPipeline:
         dns_analyzer: Any = None,
         whitelist_manager: Any = None,
         memory_forensics: Any = None,
-        encrypted_traffic: Any = None,
-        fileless_detector: Any = None,
     ) -> None:
         self._rule_engine = rule_engine
         self._anomaly_detector = anomaly_detector
@@ -94,8 +87,6 @@ class DetectionPipeline:
         self._dns_analyzer = dns_analyzer
         self._whitelist_manager = whitelist_manager
         self._memory_forensics = memory_forensics
-        self._encrypted_traffic = encrypted_traffic
-        self._fileless_detector = fileless_detector
 
     # ------------------------------------------------------------------
     # Public API
@@ -108,22 +99,10 @@ class DetectionPipeline:
         """
         alerts: list[Alert] = []
 
-        # 0. Whitelist check — skip whitelisted events entirely
-        if self._whitelist_manager is not None:
-            try:
-                if self._whitelist_manager.check_event(event):
-                    return []
-            except Exception:
-                logger.debug("Whitelist check failed", exc_info=True)
-
         # 1. Rule engine — fast path for known signatures
         rule_alert = self._run_rule_engine(event)
         if rule_alert is not None:
             alerts.append(rule_alert)
-
-        # 1b. YARA scanner — file-based malware signatures
-        yara_alerts = self._run_yara_scanner(event)
-        alerts.extend(yara_alerts)
 
         # 2. Statistical cascade (Isolation Forest → Autoencoder)
         cascade_alert = self._run_statistical_cascade(event)
@@ -150,11 +129,11 @@ class DetectionPipeline:
             top = matches[0]
             return self._make_alert(
                 event=event,
-                alert_type=f"rule_{top.rule_id}",
+                alert_type=f"rule_{top.name}",
                 title=top.description,
-                severity=top.severity,
+                severity=Severity.from_string(top.severity),
                 confidence=0.95,
-                mitre_ids=top.mitre_ids,
+                mitre_ids=[top.mitre] if hasattr(top, "mitre") and top.mitre else [],
                 engine="rule_engine",
             )
         except Exception:
@@ -239,32 +218,10 @@ class DetectionPipeline:
         "process_new",
     }
 
-    # Event types that should trigger encrypted traffic analysis.
-    _ENCRYPTED_TRAFFIC_EVENT_TYPES: set[str] = {
-        "etw.tls_handshake",
-        "etw.http_request",
-        "connection",
-    }
-
-    # Event types that should trigger fileless attack detection.
-    _FILELESS_EVENT_TYPES: set[str] = {
-        "etw.powershell_scriptblock",
-        "etw.dotnet_assembly_load",
-        "etw.wmi_activity",
-        "etw.amsi_scan",
-        "process_new",
-    }
-
     def _run_parallel_engines(self, event: AegisEvent) -> list[Alert]:
         """Run LSTM, URL Classifier, Graph Analyzer, DNS Analyzer,
-        Memory Forensics, Encrypted Traffic, and Fileless Detector."""
+        and Memory Forensics."""
         alerts: list[Alert] = []
-
-        # DNS Analyzer — for dns_query events
-        if event.event_type == "dns_query" and self._dns_analyzer is not None:
-            alert = self._run_dns_analyzer(event)
-            if alert is not None:
-                alerts.append(alert)
 
         # URL Classifier — only for events with URL data
         url = event.data.get("url") or event.data.get("domain")
@@ -290,20 +247,6 @@ class DetectionPipeline:
         ):
             alerts.extend(self._run_memory_forensics(event))
 
-        # Encrypted Traffic — for TLS, HTTP, and connection events
-        if (
-            event.event_type in self._ENCRYPTED_TRAFFIC_EVENT_TYPES
-            and self._encrypted_traffic is not None
-        ):
-            alerts.extend(self._run_encrypted_traffic(event))
-
-        # Fileless Detector — PS obfuscation, .NET injection, WMI, LOLBins
-        if (
-            event.event_type in self._FILELESS_EVENT_TYPES
-            and self._fileless_detector is not None
-        ):
-            alerts.extend(self._run_fileless_detector(event))
-
         return alerts
 
     def _run_url_classifier(
@@ -311,9 +254,11 @@ class DetectionPipeline:
     ) -> Alert | None:
         """Classify a URL from the event."""
         try:
-            label, confidence = self._url_classifier.predict(url)
+            result = self._url_classifier.predict(url)
+            label = result.get("label", "benign")
             if label == "benign":
                 return None
+            confidence = result.get("confidence", 0.7)
             severity = Severity.HIGH if label == "malicious" else Severity.MEDIUM
             return self._make_alert(
                 event=event,
@@ -350,15 +295,15 @@ class DetectionPipeline:
     def _run_lstm_analyzer(self, event: AegisEvent) -> Alert | None:
         """Check for temporal patterns (beaconing, brute force)."""
         try:
-            is_beaconing, details = self._lstm_analyzer.detect_beaconing([event])
-            if not is_beaconing:
+            result = self._lstm_analyzer.detect_beaconing([event])
+            if result is None:
                 return None
             return self._make_alert(
                 event=event,
                 alert_type="temporal_pattern",
-                title=details.get("description", "Beaconing pattern detected"),
+                title=result.get("description", "Temporal pattern detected"),
                 severity=Severity.HIGH,
-                confidence=details.get("confidence", 0.75),
+                confidence=result.get("confidence", 0.75),
                 engine="lstm_analyzer",
             )
         except Exception:
@@ -468,36 +413,6 @@ class DetectionPipeline:
         except Exception:
             logger.exception(
                 "Memory forensics failed for event %s",
-                event.event_id,
-            )
-            return []
-
-    # ------------------------------------------------------------------
-    # Encrypted traffic
-    # ------------------------------------------------------------------
-
-    def _run_encrypted_traffic(self, event: AegisEvent) -> list[Alert]:
-        """Run encrypted traffic engine on TLS/HTTP/connection events."""
-        try:
-            return self._encrypted_traffic.analyze_event(event)
-        except Exception:
-            logger.exception(
-                "Encrypted traffic engine failed for event %s",
-                event.event_id,
-            )
-            return []
-
-    # ------------------------------------------------------------------
-    # Fileless detector
-    # ------------------------------------------------------------------
-
-    def _run_fileless_detector(self, event: AegisEvent) -> list[Alert]:
-        """Run fileless attack detector on applicable events."""
-        try:
-            return self._fileless_detector.analyze_event(event)
-        except Exception:
-            logger.exception(
-                "Fileless detector failed for event %s",
                 event.event_id,
             )
             return []

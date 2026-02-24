@@ -133,11 +133,7 @@ class NetworkSensor(BaseSensor):
                 "remote_addr": remote_addr,
                 "remote_port": remote_port,
                 "status": status,
-                "family": (
-                    str(conn.family.name)
-                    if hasattr(conn.family, "name")
-                    else str(conn.family)
-                ),
+                "family": str(conn.family.name) if hasattr(conn.family, "name") else str(conn.family),
             }
 
             current_conns[key] = data
@@ -180,14 +176,8 @@ class NetworkSensor(BaseSensor):
                     data=conn_data,
                 ))
 
-        # Record timestamps for beacon tracking
-        now = time.time()
-        unique_remote = set(remote_ips)
-        for ip in unique_remote:
-            self._dest_timestamps[ip].append(now)
-        self._cap_timestamps()
-
         # Calculate new destination rate
+        unique_remote = set(remote_ips)
         new_destinations = unique_remote - self._known_remote_ips
         new_dest_rate = len(new_destinations)
         self._known_remote_ips.update(unique_remote)
@@ -202,7 +192,6 @@ class NetworkSensor(BaseSensor):
             "connections_by_protocol": dict(protocol_counts),
             "new_destination_rate": new_dest_rate,
             "dns_query_count": self._dns_query_count,
-            "dest_timestamps": dict(self._dest_timestamps),
         }
 
         events.append(AegisEvent(
@@ -215,20 +204,7 @@ class NetworkSensor(BaseSensor):
         self._prev_conns = current_conns
         return events
 
-    def _cap_timestamps(self) -> None:
-        """Cap each destination's timestamp list to at most 200 entries.
-
-        Keeps the most recent 200 timestamps per destination IP to
-        bound memory usage while retaining enough data for beacon
-        detection analysis.
-        """
-        max_entries = 200
-        for ip in self._dest_timestamps:
-            if len(self._dest_timestamps[ip]) > max_entries:
-                self._dest_timestamps[ip] = self._dest_timestamps[ip][-max_entries:]
-
     def teardown(self) -> None:
         """Cleanup."""
         self._prev_conns.clear()
         self._known_remote_ips.clear()
-        self._dest_timestamps.clear()

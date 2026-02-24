@@ -40,28 +40,10 @@ class BaseSensor(abc.ABC):
         self._on_event = on_event
         self._running = False
         self._thread: threading.Thread | None = None
-        self._error_count: int = 0
-        self._consecutive_errors: int = 0
-        self._last_collect_duration: float = 0.0
 
     @property
     def is_running(self) -> bool:
         return self._running
-
-    @property
-    def error_count(self) -> int:
-        """Total number of collect() errors."""
-        return self._error_count
-
-    @property
-    def consecutive_errors(self) -> int:
-        """Current run of consecutive collect() errors."""
-        return self._consecutive_errors
-
-    @property
-    def last_collect_duration(self) -> float:
-        """Duration of the last collect() call in seconds."""
-        return self._last_collect_duration
 
     @abc.abstractmethod
     def setup(self) -> None:
@@ -88,16 +70,11 @@ class BaseSensor(abc.ABC):
     def _run_loop(self) -> None:
         while self._running:
             try:
-                t0 = time.monotonic()
                 events = self.collect()
-                self._last_collect_duration = time.monotonic() - t0
-                self._consecutive_errors = 0
                 for event in events:
                     if self._on_event:
                         self._on_event(event)
             except Exception as e:
-                self._error_count += 1
-                self._consecutive_errors += 1
                 logger.error(f"Sensor '{self.sensor_name}' error in collect(): {e}")
             time.sleep(self._interval)
 

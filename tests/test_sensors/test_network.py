@@ -159,13 +159,13 @@ class TestNetworkSensorLifecycle:
 
 
 class TestNetworkSensorBeaconTracking:
-    """Tests for per-destination timestamp tracking (beacon detection)."""
-
     def test_collect_includes_dest_timestamps(self):
         """Network events should include destination timestamps."""
         sensor = NetworkSensor()
         sensor.setup()
-        sensor.collect()
+        # The collect method should include dest_timestamps
+        # in the network flow events data
+        events = sensor.collect()
         # At minimum, the sensor should have the tracking dict
         assert hasattr(sensor, '_dest_timestamps')
 
@@ -184,9 +184,7 @@ class TestNetworkSensorBeaconTracking:
         sensor = NetworkSensor()
         sensor.setup()
         events = sensor.collect()
-        flow_events = [
-            e for e in events if e.event_type == "network_flow_stats"
-        ]
+        flow_events = [e for e in events if e.event_type == "network_flow_stats"]
         assert len(flow_events) == 1
         stats = flow_events[0].data
         assert "dest_timestamps" in stats
@@ -196,9 +194,7 @@ class TestNetworkSensorBeaconTracking:
         sensor = NetworkSensor()
         sensor.setup()
         events = sensor.collect()
-        flow_events = [
-            e for e in events if e.event_type == "network_flow_stats"
-        ]
+        flow_events = [e for e in events if e.event_type == "network_flow_stats"]
         stats = flow_events[0].data
         assert isinstance(stats["dest_timestamps"], dict)
 

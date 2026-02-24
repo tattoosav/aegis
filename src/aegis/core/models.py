@@ -20,8 +20,6 @@ class SensorType(Enum):
     THREAT_INTEL = "threat_intel"
     HARDWARE = "hardware"
     CLIPBOARD = "clipboard"
-    REGISTRY = "registry"
-    ETW = "etw"
 
     @classmethod
     def from_string(cls, value: str) -> SensorType:
@@ -61,14 +59,6 @@ class AlertStatus(Enum):
     RESOLVED = "resolved"
     DISMISSED = "dismissed"
     AUTO_SUPPRESSED = "auto_suppressed"
-
-
-class IncidentStatus(Enum):
-    """Incident lifecycle states."""
-
-    OPEN = "open"
-    CLOSED = "closed"
-    MERGED = "merged"
 
 
 @dataclass
