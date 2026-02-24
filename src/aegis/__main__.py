@@ -35,10 +35,13 @@ logger = logging.getLogger("aegis")
 
 def _setup_logging() -> None:
     """Configure logging with console and rotating file handler."""
+    root_logger = logging.getLogger()
+    if root_logger.handlers:
+        return  # Already configured
+
     log_dir = Path.home() / "AppData" / "Roaming" / "Aegis" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
 
     fmt = logging.Formatter(
@@ -101,21 +104,21 @@ def _run_headless(config: AegisConfig) -> int:
     coordinator = AegisCoordinator(config)
     coordinator.setup()
     coordinator.start()
+    try:
+        stop_event = threading.Event()
 
-    stop_event = threading.Event()
+        def _signal_handler(*_args: object) -> None:
+            logger.info("Shutdown signal received")
+            stop_event.set()
 
-    def _signal_handler(*_args: object) -> None:
-        logger.info("Shutdown signal received")
-        stop_event.set()
+        signal.signal(signal.SIGINT, _signal_handler)
+        signal.signal(signal.SIGTERM, _signal_handler)
 
-    signal.signal(signal.SIGINT, _signal_handler)
-    signal.signal(signal.SIGTERM, _signal_handler)
-
-    logger.info("Aegis running in headless mode (Ctrl-C to stop)")
-    stop_event.wait()
-
-    coordinator.stop()
-    logger.info("Aegis shutdown complete")
+        logger.info("Aegis running in headless mode (Ctrl-C to stop)")
+        stop_event.wait()
+    finally:
+        coordinator.stop()
+        logger.info("Aegis headless shutdown complete")
     return 0
 
 
@@ -127,6 +130,7 @@ def _run_gui(config: AegisConfig) -> int:
 
     engine = coordinator.engine
 
+    exit_code = 1  # default; overwritten on success
     try:
         from aegis.ui.app import create_app
 
