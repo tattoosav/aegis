@@ -1,175 +1,136 @@
-"""Tests for AegisServiceFramework — Windows service wrapper."""
+"""Tests for Windows Service -- Coordinator integration."""
 
 from __future__ import annotations
 
-import subprocess
 from unittest.mock import MagicMock, patch
 
-from aegis.core.service import (
-    _CHILD_PROCESSES,
-    AegisServiceFramework,
-)
+from aegis.core.service import AegisServiceFramework
 
 # ------------------------------------------------------------------ #
-# Construction
+# Service metadata
 # ------------------------------------------------------------------ #
 
-class TestServiceInit:
-    """Basic construction tests."""
 
-    def test_creates(self) -> None:
+class TestServiceMetadata:
+    """Service name and display name."""
+
+    def test_svc_name_is_aegis_defense(self) -> None:
         svc = AegisServiceFramework()
-        assert svc is not None
+        assert svc._svc_name_ == "AegisDefense"
 
-    def test_not_running_initially(self) -> None:
+    def test_svc_display_name(self) -> None:
         svc = AegisServiceFramework()
-        assert svc.running is False
-
-    def test_no_children_initially(self) -> None:
-        svc = AegisServiceFramework()
-        assert svc.children == {}
-
-    def test_service_name(self) -> None:
-        assert AegisServiceFramework._svc_name_ == "AegisSecurity"
+        assert svc._svc_display_name_ == "Aegis Security Defense System"
 
 
 # ------------------------------------------------------------------ #
-# Launch children
+# Coordinator integration
 # ------------------------------------------------------------------ #
 
-class TestLaunchChild:
-    """Tests for _launch_child."""
 
-    @patch("aegis.core.service.subprocess.Popen")
-    def test_launches_process(
-        self, mock_popen: MagicMock,
-    ) -> None:
-        mock_proc = MagicMock()
-        mock_proc.pid = 12345
-        mock_popen.return_value = mock_proc
+class TestServiceCoordinatorIntegration:
+    """start/stop delegate to AegisCoordinator."""
 
+    def test_start_creates_coordinator(self) -> None:
         svc = AegisServiceFramework()
-        svc._launch_child("test", "aegis.test")
-        mock_popen.assert_called_once()
-        assert "test" in svc._children
+        with patch("aegis.core.service.AegisCoordinator") as mock_coord:
+            mock_instance = MagicMock()
+            mock_coord.return_value = mock_instance
+            svc._running = False  # prevent monitor loop
+            svc.start()
+            mock_coord.assert_called_once()
+            mock_instance.setup.assert_called_once()
+            mock_instance.start.assert_called_once()
 
-    @patch("aegis.core.service.subprocess.Popen")
-    def test_launch_failure_handled(
-        self, mock_popen: MagicMock,
-    ) -> None:
-        mock_popen.side_effect = OSError("spawn failed")
+    def test_stop_calls_coordinator_stop(self) -> None:
         svc = AegisServiceFramework()
-        svc._launch_child("test", "aegis.test")
-        assert "test" not in svc._children
-
-
-# ------------------------------------------------------------------ #
-# Launch all
-# ------------------------------------------------------------------ #
-
-class TestLaunchAll:
-    """Tests for _launch_all."""
-
-    @patch("aegis.core.service.subprocess.Popen")
-    def test_launches_all_children(
-        self, mock_popen: MagicMock,
-    ) -> None:
-        mock_proc = MagicMock()
-        mock_proc.pid = 100
-        mock_popen.return_value = mock_proc
-
-        svc = AegisServiceFramework()
-        svc._launch_all()
-        assert len(svc._children) == len(_CHILD_PROCESSES)
-
-
-# ------------------------------------------------------------------ #
-# Terminate all
-# ------------------------------------------------------------------ #
-
-class TestTerminateAll:
-    """Tests for _terminate_all."""
-
-    def test_terminates_running_children(self) -> None:
-        svc = AegisServiceFramework()
-        mock_proc = MagicMock()
-        mock_proc.poll.return_value = None  # still running
-        svc._children["test"] = mock_proc
-
-        svc._terminate_all()
-        mock_proc.terminate.assert_called_once()
-        assert svc._children == {}
-
-    def test_kills_stubborn_child(self) -> None:
-        svc = AegisServiceFramework()
-        mock_proc = MagicMock()
-        mock_proc.poll.return_value = None
-        mock_proc.wait.side_effect = subprocess.TimeoutExpired(
-            cmd="test", timeout=5
-        )
-        svc._children["test"] = mock_proc
-
-        svc._terminate_all()
-        mock_proc.kill.assert_called_once()
-
-    def test_skip_already_exited(self) -> None:
-        svc = AegisServiceFramework()
-        mock_proc = MagicMock()
-        mock_proc.poll.return_value = 0  # already exited
-        svc._children["test"] = mock_proc
-
-        svc._terminate_all()
-        mock_proc.terminate.assert_not_called()
-
-
-# ------------------------------------------------------------------ #
-# Stop
-# ------------------------------------------------------------------ #
-
-class TestStop:
-    """Tests for stop()."""
-
-    def test_stop_sets_running_false(self) -> None:
-        svc = AegisServiceFramework()
+        svc._coordinator = MagicMock()
         svc._running = True
         svc.stop()
+        svc._coordinator.stop.assert_called_once()
+        assert svc._running is False
+
+    def test_event_log_on_start(self) -> None:
+        svc = AegisServiceFramework()
+        with patch("aegis.core.service.AegisCoordinator"):
+            with patch("aegis.core.service.logger") as mock_log:
+                svc._running = False
+                svc.start()
+                mock_log.info.assert_any_call("Aegis service starting")
+
+    def test_event_log_on_stop(self) -> None:
+        svc = AegisServiceFramework()
+        svc._coordinator = MagicMock()
+        svc._running = True
+        with patch("aegis.core.service.logger") as mock_log:
+            svc.stop()
+            mock_log.info.assert_any_call("Aegis service stopping")
+
+
+# ------------------------------------------------------------------ #
+# Dual-mode detection
+# ------------------------------------------------------------------ #
+
+
+class TestDualMode:
+    """Service mode detection."""
+
+    def test_is_service_mode_exists(self) -> None:
+        svc = AegisServiceFramework()
+        result = svc._is_service_mode()
+        assert isinstance(result, bool)
+
+
+# ------------------------------------------------------------------ #
+# Properties
+# ------------------------------------------------------------------ #
+
+
+class TestServiceProperties:
+    """Read-only properties."""
+
+    def test_running_initially_false(self) -> None:
+        svc = AegisServiceFramework()
         assert svc.running is False
 
-
-# ------------------------------------------------------------------ #
-# Monitor loop (quick cycle)
-# ------------------------------------------------------------------ #
-
-class TestMonitorLoop:
-    """Test _monitor_loop restarts crashed children."""
-
-    @patch("aegis.core.service.time.sleep")
-    @patch("aegis.core.service.subprocess.Popen")
-    def test_restarts_crashed_child(
-        self, mock_popen: MagicMock, mock_sleep: MagicMock,
-    ) -> None:
-        mock_proc = MagicMock()
-        mock_proc.pid = 200
-        mock_popen.return_value = mock_proc
-
-        # After one loop iteration, stop the service
-        call_count = 0
-
-        def stop_after_one(*args):
-            nonlocal call_count
-            call_count += 1
-            if call_count >= 1:
-                svc._running = False
-
-        mock_sleep.side_effect = stop_after_one
-
+    def test_coordinator_initially_none(self) -> None:
         svc = AegisServiceFramework()
-        # Simulate a crashed child
-        dead_proc = MagicMock()
-        dead_proc.poll.return_value = 1  # exited
-        svc._children["event_engine"] = dead_proc
-        svc._running = True
+        assert svc.coordinator is None
 
-        svc._monitor_loop()
-        # Should have launched a new process for event_engine
-        assert mock_popen.call_count >= 1
+    def test_coordinator_set_after_start(self) -> None:
+        svc = AegisServiceFramework()
+        with patch("aegis.core.service.AegisCoordinator") as mock_coord:
+            mock_instance = MagicMock()
+            mock_coord.return_value = mock_instance
+            svc._running = False
+            svc.start()
+            assert svc.coordinator is mock_instance
+
+
+# ------------------------------------------------------------------ #
+# Error handling
+# ------------------------------------------------------------------ #
+
+
+class TestServiceErrorHandling:
+    """Coordinator errors are logged, not raised."""
+
+    def test_start_logs_coordinator_error(self) -> None:
+        svc = AegisServiceFramework()
+        with patch("aegis.core.service.AegisCoordinator") as mock_coord:
+            mock_coord.side_effect = RuntimeError("boom")
+            with patch("aegis.core.service.logger") as mock_log:
+                svc._running = False
+                svc.start()
+                mock_log.exception.assert_called()
+
+    def test_stop_logs_coordinator_error(self) -> None:
+        svc = AegisServiceFramework()
+        mock_c = MagicMock()
+        mock_c.stop.side_effect = RuntimeError("boom")
+        svc._coordinator = mock_c
+        svc._running = True
+        with patch("aegis.core.service.logger") as mock_log:
+            svc.stop()
+            mock_log.exception.assert_called()
+            assert svc._running is False
