@@ -1,0 +1,325 @@
+{
+  "description": "Common MITRE ATT&CK attack chain patterns for threat prediction.",
+  "version": "1.0.0",
+  "chains": [
+    {
+      "name": "Spear-phishing to data exfiltration",
+      "description": "Classic phishing-based intrusion leading to data theft.",
+      "techniques": ["T1566", "T1059", "T1082", "T1005", "T1041"]
+    },
+    {
+      "name": "Phishing to ransomware",
+      "description": "Phishing email leads to ransomware deployment.",
+      "techniques": ["T1566", "T1204.002", "T1059", "T1562", "T1486"]
+    },
+    {
+      "name": "Drive-by to credential theft",
+      "description": "Browser exploit leads to credential harvesting.",
+      "techniques": ["T1189", "T1059", "T1055", "T1003", "T1041"]
+    },
+    {
+      "name": "Supply chain persistence",
+      "description": "Compromised software leads to persistent backdoor.",
+      "techniques": ["T1195", "T1059", "T1547.001", "T1082", "T1071"]
+    },
+    {
+      "name": "Valid accounts lateral movement",
+      "description": "Stolen credentials used for lateral movement and collection.",
+      "techniques": ["T1078", "T1021", "T1082", "T1005", "T1560", "T1041"]
+    },
+    {
+      "name": "Phishing to lateral movement",
+      "description": "Phishing leads to discovery, credential theft, and lateral movement.",
+      "techniques": ["T1566", "T1059", "T1082", "T1003", "T1021", "T1567"]
+    },
+    {
+      "name": "PowerShell-based attack chain",
+      "description": "PowerShell execution leading to defense evasion and exfiltration.",
+      "techniques": ["T1566", "T1059.001", "T1027", "T1082", "T1005", "T1048"]
+    },
+    {
+      "name": "DLL injection with keylogging",
+      "description": "Process injection enabling keylogging and credential theft.",
+      "techniques": ["T1566", "T1059", "T1055", "T1056.001", "T1041"]
+    },
+    {
+      "name": "Ransomware kill chain",
+      "description": "Full ransomware attack from initial access to impact.",
+      "techniques": ["T1566", "T1059", "T1562", "T1489", "T1490", "T1486"]
+    },
+    {
+      "name": "Credential dumping lateral spread",
+      "description": "Credential dumping followed by RDP-based lateral movement.",
+      "techniques": ["T1078", "T1003", "T1021.001", "T1082", "T1560", "T1567"]
+    },
+    {
+      "name": "Living off the land",
+      "description": "LOLBins and system binary proxy execution for stealthy operation.",
+      "techniques": ["T1566", "T1218", "T1140", "T1082", "T1005", "T1071"]
+    },
+    {
+      "name": "SMB lateral movement with exfiltration",
+      "description": "Lateral movement via SMB shares leading to data theft.",
+      "techniques": ["T1078", "T1021.002", "T1083", "T1005", "T1560", "T1048"]
+    },
+    {
+      "name": "Scheduled task persistence",
+      "description": "Execution via scheduled tasks for persistent access.",
+      "techniques": ["T1566", "T1059", "T1053", "T1071", "T1105", "T1041"]
+    },
+    {
+      "name": "Service creation persistence",
+      "description": "Malicious service creation for persistence and C2.",
+      "techniques": ["T1189", "T1059", "T1543", "T1573", "T1005", "T1041"]
+    },
+    {
+      "name": "Brute force to data collection",
+      "description": "Brute force credential access leading to data collection.",
+      "techniques": ["T1110", "T1078", "T1082", "T1083", "T1005", "T1567"]
+    },
+    {
+      "name": "Phishing to process injection",
+      "description": "Phishing leads to process injection and defense evasion.",
+      "techniques": ["T1566", "T1059", "T1055", "T1070", "T1005", "T1041"]
+    },
+    {
+      "name": "Encrypted C2 with web exfiltration",
+      "description": "Encrypted command and control leading to web-based exfiltration.",
+      "techniques": ["T1566", "T1059", "T1573", "T1082", "T1560", "T1567"]
+    },
+    {
+      "name": "Clipboard data theft",
+      "description": "Phishing to clipboard monitoring and data exfiltration.",
+      "techniques": ["T1566", "T1059", "T1115", "T1560", "T1048"]
+    },
+    {
+      "name": "UAC bypass privilege escalation",
+      "description": "Elevation control abuse leading to credential dumping.",
+      "techniques": ["T1566", "T1059", "T1548", "T1003", "T1021", "T1041"]
+    },
+    {
+      "name": "Discovery and network mapping",
+      "description": "Broad discovery and network enumeration after initial access.",
+      "techniques": ["T1078", "T1082", "T1057", "T1016", "T1083", "T1021"]
+    }
+  ],
+  "technique_metadata": {
+    "T1566": {
+      "name": "Phishing",
+      "tactic": "initial-access"
+    },
+    "T1059": {
+      "name": "Command and Scripting Interpreter",
+      "tactic": "execution"
+    },
+    "T1059.001": {
+      "name": "PowerShell",
+      "tactic": "execution"
+    },
+    "T1059.003": {
+      "name": "Windows Command Shell",
+      "tactic": "execution"
+    },
+    "T1204.002": {
+      "name": "User Execution: Malicious File",
+      "tactic": "execution"
+    },
+    "T1189": {
+      "name": "Drive-by Compromise",
+      "tactic": "initial-access"
+    },
+    "T1195": {
+      "name": "Supply Chain Compromise",
+      "tactic": "initial-access"
+    },
+    "T1078": {
+      "name": "Valid Accounts",
+      "tactic": "initial-access"
+    },
+    "T1110": {
+      "name": "Brute Force",
+      "tactic": "credential-access"
+    },
+    "T1003": {
+      "name": "OS Credential Dumping",
+      "tactic": "credential-access"
+    },
+    "T1055": {
+      "name": "Process Injection",
+      "tactic": "defense-evasion"
+    },
+    "T1055.001": {
+      "name": "DLL Injection",
+      "tactic": "defense-evasion"
+    },
+    "T1027": {
+      "name": "Obfuscated Files or Information",
+      "tactic": "defense-evasion"
+    },
+    "T1070": {
+      "name": "Indicator Removal",
+      "tactic": "defense-evasion"
+    },
+    "T1140": {
+      "name": "Deobfuscate/Decode Files or Information",
+      "tactic": "defense-evasion"
+    },
+    "T1218": {
+      "name": "System Binary Proxy Execution",
+      "tactic": "defense-evasion"
+    },
+    "T1562": {
+      "name": "Impair Defenses",
+      "tactic": "defense-evasion"
+    },
+    "T1548": {
+      "name": "Abuse Elevation Control Mechanism",
+      "tactic": "privilege-escalation"
+    },
+    "T1547.001": {
+      "name": "Registry Run Keys / Startup Folder",
+      "tactic": "persistence"
+    },
+    "T1053": {
+      "name": "Scheduled Task/Job",
+      "tactic": "persistence"
+    },
+    "T1543": {
+      "name": "Create or Modify System Process",
+      "tactic": "persistence"
+    },
+    "T1082": {
+      "name": "System Information Discovery",
+      "tactic": "discovery"
+    },
+    "T1083": {
+      "name": "File and Directory Discovery",
+      "tactic": "discovery"
+    },
+    "T1057": {
+      "name": "Process Discovery",
+      "tactic": "discovery"
+    },
+    "T1016": {
+      "name": "System Network Configuration Discovery",
+      "tactic": "discovery"
+    },
+    "T1021": {
+      "name": "Remote Services",
+      "tactic": "lateral-movement"
+    },
+    "T1021.001": {
+      "name": "Remote Desktop Protocol",
+      "tactic": "lateral-movement"
+    },
+    "T1021.002": {
+      "name": "SMB/Windows Admin Shares",
+      "tactic": "lateral-movement"
+    },
+    "T1005": {
+      "name": "Data from Local System",
+      "tactic": "collection"
+    },
+    "T1560": {
+      "name": "Archive Collected Data",
+      "tactic": "collection"
+    },
+    "T1115": {
+      "name": "Clipboard Data",
+      "tactic": "collection"
+    },
+    "T1056.001": {
+      "name": "Input Capture: Keylogging",
+      "tactic": "credential-access"
+    },
+    "T1552": {
+      "name": "Unsecured Credentials",
+      "tactic": "credential-access"
+    },
+    "T1071": {
+      "name": "Application Layer Protocol",
+      "tactic": "command-and-control"
+    },
+    "T1573": {
+      "name": "Encrypted Channel",
+      "tactic": "command-and-control"
+    },
+    "T1105": {
+      "name": "Ingress Tool Transfer",
+      "tactic": "command-and-control"
+    },
+    "T1041": {
+      "name": "Exfiltration Over C2 Channel",
+      "tactic": "exfiltration"
+    },
+    "T1567": {
+      "name": "Exfiltration Over Web Service",
+      "tactic": "exfiltration"
+    },
+    "T1048": {
+      "name": "Exfiltration Over Alternative Protocol",
+      "tactic": "exfiltration"
+    },
+    "T1486": {
+      "name": "Data Encrypted for Impact",
+      "tactic": "impact"
+    },
+    "T1489": {
+      "name": "Service Stop",
+      "tactic": "impact"
+    },
+    "T1490": {
+      "name": "Inhibit System Recovery",
+      "tactic": "impact"
+    },
+    "T1555": {
+      "name": "Credentials from Password Stores",
+      "tactic": "credential-access"
+    }
+  },
+  "defensive_recommendations": {
+    "T1566": "Deploy email filtering, enable SPF/DKIM/DMARC, user awareness training.",
+    "T1059": "Restrict script execution via AppLocker/WDAC, enable script block logging.",
+    "T1059.001": "Enable PowerShell constrained language mode and script block logging.",
+    "T1059.003": "Restrict cmd.exe access for non-admin users via Group Policy.",
+    "T1204.002": "Block macros in Office, deploy sandboxing for document previews.",
+    "T1189": "Keep browsers patched, use exploit mitigation tools (EMET/Exploit Guard).",
+    "T1195": "Validate software supply chain integrity, use code signing verification.",
+    "T1078": "Enforce MFA, monitor for anomalous logon behavior, rotate credentials.",
+    "T1110": "Enable account lockout policies, deploy MFA, monitor failed logon attempts.",
+    "T1003": "Enable Credential Guard, restrict debug privileges, monitor LSASS access.",
+    "T1055": "Enable Attack Surface Reduction rules, monitor for process injection APIs.",
+    "T1055.001": "Monitor for LoadLibrary/CreateRemoteThread calls, use code integrity.",
+    "T1027": "Deploy content inspection, monitor for encoded/packed executables.",
+    "T1070": "Centralize logging to SIEM, enable audit log tamper protection.",
+    "T1140": "Monitor for certutil/PowerShell decode operations, inspect decoded payloads.",
+    "T1218": "Monitor LOLBin execution, restrict unnecessary system binaries.",
+    "T1562": "Monitor for security tool tampering, use tamper protection features.",
+    "T1548": "Configure UAC to always prompt, monitor for UAC bypass techniques.",
+    "T1547.001": "Monitor Run keys and Startup folder, restrict write access to these paths.",
+    "T1053": "Monitor scheduled task creation, restrict task scheduler permissions.",
+    "T1543": "Monitor service creation events, restrict service install privileges.",
+    "T1082": "Monitor for enumeration commands (systeminfo, hostname, whoami).",
+    "T1083": "Monitor file system enumeration, restrict sensitive directory listings.",
+    "T1057": "Monitor process listing commands, limit process visibility where possible.",
+    "T1016": "Monitor network configuration commands (ipconfig, arp, route).",
+    "T1021": "Restrict remote service access, enforce network segmentation.",
+    "T1021.001": "Restrict RDP access, use NLA, enable RDP audit logging.",
+    "T1021.002": "Disable admin shares where unneeded, monitor SMB lateral movement.",
+    "T1005": "Classify sensitive data, apply DLP policies, encrypt files at rest.",
+    "T1560": "Monitor for compression tool usage, inspect outbound archive files.",
+    "T1115": "Monitor clipboard access APIs, restrict clipboard access for services.",
+    "T1056.001": "Monitor for keylogger indicators, use credential managers.",
+    "T1552": "Remove cleartext credentials from scripts and files, use vaults.",
+    "T1071": "Deploy network monitoring, inspect HTTP/DNS traffic for anomalies.",
+    "T1573": "Deploy TLS inspection, monitor for non-standard encrypted channels.",
+    "T1105": "Monitor for file downloads from external IPs, inspect transferred tools.",
+    "T1041": "Monitor C2 channel bandwidth, deploy DLP on egress traffic.",
+    "T1567": "Block unauthorized cloud storage, monitor web service uploads.",
+    "T1048": "Monitor for DNS tunneling and non-standard protocol exfiltration.",
+    "T1486": "Maintain offline backups, deploy anti-ransomware tools, restrict encryption.",
+    "T1489": "Protect critical services, monitor for service stop events.",
+    "T1490": "Protect shadow copies, monitor vssadmin/wmic shadowcopy calls.",
+    "T1555": "Use credential managers with MFA, monitor browser credential store access."
+  }
+}
