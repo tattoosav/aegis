@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import time
 from typing import Any
@@ -10,6 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from aegis.response.report_generator import (
+    DailySummary,
     IncidentReport,
     ReportGenerator,
 )
@@ -688,3 +691,416 @@ class TestBuildSummary:
         assert result == (
             "No security events recorded in this period."
         )
+
+
+# ------------------------------------------------------------------ #
+# TestDailySummary dataclass
+# ------------------------------------------------------------------ #
+
+
+class TestDailySummary:
+    """Tests for the DailySummary dataclass."""
+
+    def test_defaults(self) -> None:
+        """Default fields should be empty/zero."""
+        ds = DailySummary()
+        assert ds.alert_counts == {}
+        assert ds.top_rules == []
+        assert ds.new_iocs == []
+        assert ds.sensor_status == {}
+
+    def test_custom_values(self) -> None:
+        """All fields should accept custom values."""
+        ds = DailySummary(
+            alert_counts={"critical": 2, "high": 5},
+            top_rules=[{"rule": "r1", "count": 10}],
+            new_iocs=[{"type": "ip", "value": "1.2.3.4"}],
+            sensor_status={"sysmon": "running"},
+        )
+        assert ds.alert_counts["critical"] == 2
+        assert len(ds.top_rules) == 1
+        assert len(ds.new_iocs) == 1
+        assert ds.sensor_status["sysmon"] == "running"
+
+
+# ------------------------------------------------------------------ #
+# TestRenderIncidentReport (Jinja2 template)
+# ------------------------------------------------------------------ #
+
+
+class TestRenderIncidentReport:
+    """Tests for ReportGenerator.render_incident_report()."""
+
+    @pytest.fixture()
+    def incident_data(self) -> dict[str, Any]:
+        """Sample incident data dict for template rendering."""
+        return {
+            "id": "INC-001",
+            "title": "Ransomware Attack Detected",
+            "severity": "critical",
+            "timestamp": 1700000000.0,
+            "summary": "A ransomware payload was detected.",
+            "timeline": [
+                {
+                    "timestamp": 1699995000.0,
+                    "event": "Initial access via phishing",
+                    "severity": "high",
+                },
+                {
+                    "timestamp": 1699996000.0,
+                    "event": "Lateral movement detected",
+                    "severity": "critical",
+                },
+            ],
+            "alerts": [
+                {
+                    "alert_type": "malware_detected",
+                    "severity": "critical",
+                    "title": "Ransomware binary executed",
+                    "description": "Crypto-locker variant",
+                    "timestamp": 1699996000.0,
+                },
+            ],
+            "mitre_techniques": [
+                {"id": "T1059", "name": "Command-Line Interface"},
+                {"id": "T1071", "name": "Application Layer Protocol"},
+            ],
+            "iocs": [
+                {"type": "ip", "value": "10.0.0.99"},
+                {"type": "domain", "value": "evil.example.com"},
+                {"type": "hash", "value": "abc123def456"},
+            ],
+            "response_actions": [
+                {
+                    "action": "block_ip",
+                    "target": "10.0.0.99",
+                    "success": True,
+                },
+            ],
+            "remediation_steps": [
+                "Isolate affected hosts",
+                "Reset credentials",
+                "Restore from backup",
+            ],
+        }
+
+    def test_returns_html_string(
+        self, incident_data: dict[str, Any],
+    ) -> None:
+        """render_incident_report should return an HTML string."""
+        gen = ReportGenerator()
+        result = gen.render_incident_report(incident_data)
+        assert isinstance(result, str)
+        assert "<!DOCTYPE html>" in result
+
+    def test_contains_incident_title(
+        self, incident_data: dict[str, Any],
+    ) -> None:
+        """The incident title should appear in the output."""
+        gen = ReportGenerator()
+        result = gen.render_incident_report(incident_data)
+        assert "Ransomware Attack Detected" in result
+
+    def test_contains_timeline(
+        self, incident_data: dict[str, Any],
+    ) -> None:
+        """Timeline events should appear in the rendered HTML."""
+        gen = ReportGenerator()
+        result = gen.render_incident_report(incident_data)
+        assert "Initial access via phishing" in result
+        assert "Lateral movement detected" in result
+
+    def test_contains_iocs(
+        self, incident_data: dict[str, Any],
+    ) -> None:
+        """IOC values should be present in the output."""
+        gen = ReportGenerator()
+        result = gen.render_incident_report(incident_data)
+        assert "10.0.0.99" in result
+        assert "evil.example.com" in result
+        assert "abc123def456" in result
+
+    def test_contains_mitre_techniques(
+        self, incident_data: dict[str, Any],
+    ) -> None:
+        """MITRE ATT&CK technique IDs should be in the output."""
+        gen = ReportGenerator()
+        result = gen.render_incident_report(incident_data)
+        assert "T1059" in result
+        assert "T1071" in result
+        assert "Command-Line Interface" in result
+
+    def test_contains_response_actions(
+        self, incident_data: dict[str, Any],
+    ) -> None:
+        """Response actions should appear in the rendered HTML."""
+        gen = ReportGenerator()
+        result = gen.render_incident_report(incident_data)
+        assert "block_ip" in result
+        assert "10.0.0.99" in result
+
+    def test_contains_remediation_steps(
+        self, incident_data: dict[str, Any],
+    ) -> None:
+        """Remediation steps should appear in the rendered HTML."""
+        gen = ReportGenerator()
+        result = gen.render_incident_report(incident_data)
+        assert "Isolate affected hosts" in result
+        assert "Reset credentials" in result
+        assert "Restore from backup" in result
+
+    def test_contains_alerts(
+        self, incident_data: dict[str, Any],
+    ) -> None:
+        """Alert details should appear in the rendered HTML."""
+        gen = ReportGenerator()
+        result = gen.render_incident_report(incident_data)
+        assert "Ransomware binary executed" in result
+        assert "Crypto-locker variant" in result
+
+    def test_html_escapes_xss(self) -> None:
+        """HTML special chars in data should be escaped."""
+        data: dict[str, Any] = {
+            "id": "INC-XSS",
+            "title": "<script>alert('xss')</script>",
+            "severity": "low",
+            "timestamp": 1700000000.0,
+            "summary": "Test & verify",
+            "timeline": [],
+            "alerts": [],
+            "mitre_techniques": [],
+            "iocs": [],
+            "response_actions": [],
+            "remediation_steps": [],
+        }
+        gen = ReportGenerator()
+        result = gen.render_incident_report(data)
+        assert "<script>" not in result
+        assert "&lt;script&gt;" in result
+
+    def test_empty_sections_render(self) -> None:
+        """An incident with empty lists should render without error."""
+        data: dict[str, Any] = {
+            "id": "INC-EMPTY",
+            "title": "Empty Incident",
+            "severity": "low",
+            "timestamp": 1700000000.0,
+            "summary": "",
+            "timeline": [],
+            "alerts": [],
+            "mitre_techniques": [],
+            "iocs": [],
+            "response_actions": [],
+            "remediation_steps": [],
+        }
+        gen = ReportGenerator()
+        result = gen.render_incident_report(data)
+        assert "Empty Incident" in result
+        assert "<!DOCTYPE html>" in result
+
+
+# ------------------------------------------------------------------ #
+# TestRenderDailySummary (Jinja2 template)
+# ------------------------------------------------------------------ #
+
+
+class TestRenderDailySummary:
+    """Tests for ReportGenerator.render_daily_summary()."""
+
+    @pytest.fixture()
+    def summary_data(self) -> DailySummary:
+        """Sample daily summary data."""
+        return DailySummary(
+            alert_counts={
+                "critical": 3,
+                "high": 12,
+                "medium": 25,
+                "low": 48,
+            },
+            top_rules=[
+                {"rule": "detect_c2_beacon", "count": 15},
+                {"rule": "suspicious_powershell", "count": 8},
+            ],
+            new_iocs=[
+                {"type": "ip", "value": "192.168.1.100"},
+                {"type": "domain", "value": "bad.example.org"},
+            ],
+            sensor_status={
+                "sysmon": "running",
+                "network_monitor": "running",
+                "file_watcher": "stopped",
+            },
+        )
+
+    def test_returns_html_string(
+        self, summary_data: DailySummary,
+    ) -> None:
+        """render_daily_summary should return an HTML string."""
+        gen = ReportGenerator()
+        result = gen.render_daily_summary(summary_data)
+        assert isinstance(result, str)
+        assert "<!DOCTYPE html>" in result
+
+    def test_contains_alert_counts(
+        self, summary_data: DailySummary,
+    ) -> None:
+        """Alert counts by severity should appear in the output."""
+        gen = ReportGenerator()
+        result = gen.render_daily_summary(summary_data)
+        assert "critical" in result.lower()
+        assert "3" in result
+        assert "12" in result
+        assert "25" in result
+        assert "48" in result
+
+    def test_contains_top_rules(
+        self, summary_data: DailySummary,
+    ) -> None:
+        """Top triggered rules should appear in the output."""
+        gen = ReportGenerator()
+        result = gen.render_daily_summary(summary_data)
+        assert "detect_c2_beacon" in result
+        assert "suspicious_powershell" in result
+        assert "15" in result
+
+    def test_contains_new_iocs(
+        self, summary_data: DailySummary,
+    ) -> None:
+        """New IOCs should appear in the output."""
+        gen = ReportGenerator()
+        result = gen.render_daily_summary(summary_data)
+        assert "192.168.1.100" in result
+        assert "bad.example.org" in result
+
+    def test_contains_sensor_status(
+        self, summary_data: DailySummary,
+    ) -> None:
+        """Sensor health status should appear in the output."""
+        gen = ReportGenerator()
+        result = gen.render_daily_summary(summary_data)
+        assert "sysmon" in result
+        assert "running" in result
+        assert "file_watcher" in result
+        assert "stopped" in result
+
+    def test_empty_summary_renders(self) -> None:
+        """An empty DailySummary should render without error."""
+        ds = DailySummary()
+        gen = ReportGenerator()
+        result = gen.render_daily_summary(ds)
+        assert "<!DOCTYPE html>" in result
+
+    def test_total_alerts_shown(
+        self, summary_data: DailySummary,
+    ) -> None:
+        """The total alert count should appear in the output."""
+        gen = ReportGenerator()
+        result = gen.render_daily_summary(summary_data)
+        # Total = 3 + 12 + 25 + 48 = 88
+        assert "88" in result
+
+
+# ------------------------------------------------------------------ #
+# TestExportCsv
+# ------------------------------------------------------------------ #
+
+
+class TestExportCsv:
+    """Tests for ReportGenerator.export_csv()."""
+
+    def test_returns_string(self) -> None:
+        """export_csv should return a CSV string."""
+        report = IncidentReport(
+            title="CSV Test",
+            timeline=[
+                {
+                    "timestamp": 1000.0,
+                    "severity": "high",
+                    "source": "detection",
+                    "type": "alert",
+                },
+            ],
+        )
+        gen = ReportGenerator()
+        result = gen.export_csv(report)
+        assert isinstance(result, str)
+
+    def test_csv_has_header(self) -> None:
+        """CSV output should have a header row."""
+        report = IncidentReport(
+            title="CSV Test",
+            timeline=[
+                {
+                    "timestamp": 1000.0,
+                    "severity": "high",
+                    "source": "detection",
+                    "type": "alert",
+                },
+            ],
+        )
+        gen = ReportGenerator()
+        result = gen.export_csv(report)
+        reader = csv.reader(io.StringIO(result))
+        header = next(reader)
+        assert "timestamp" in header
+        assert "severity" in header
+        assert "source" in header
+        assert "type" in header
+
+    def test_csv_row_count(self) -> None:
+        """CSV should have one data row per timeline entry."""
+        report = IncidentReport(
+            title="CSV Test",
+            timeline=[
+                {
+                    "timestamp": 1000.0,
+                    "severity": "high",
+                    "source": "detection",
+                    "type": "alert",
+                },
+                {
+                    "timestamp": 1001.0,
+                    "severity": "low",
+                    "source": "sensor",
+                    "type": "heartbeat",
+                },
+            ],
+        )
+        gen = ReportGenerator()
+        result = gen.export_csv(report)
+        reader = csv.reader(io.StringIO(result))
+        rows = list(reader)
+        # 1 header + 2 data rows
+        assert len(rows) == 3
+
+    def test_csv_data_values(self) -> None:
+        """CSV data rows should contain the correct values."""
+        report = IncidentReport(
+            title="CSV Test",
+            timeline=[
+                {
+                    "timestamp": 1000.0,
+                    "severity": "critical",
+                    "source": "detection",
+                    "type": "malware",
+                },
+            ],
+        )
+        gen = ReportGenerator()
+        result = gen.export_csv(report)
+        reader = csv.reader(io.StringIO(result))
+        rows = list(reader)
+        data_row = rows[1]
+        assert "1000.0" in data_row
+        assert "critical" in data_row
+        assert "detection" in data_row
+        assert "malware" in data_row
+
+    def test_empty_timeline_csv(self) -> None:
+        """An empty timeline should produce a header-only CSV."""
+        report = IncidentReport(title="Empty CSV")
+        gen = ReportGenerator()
+        result = gen.export_csv(report)
+        reader = csv.reader(io.StringIO(result))
+        rows = list(reader)
+        assert len(rows) == 1  # header only

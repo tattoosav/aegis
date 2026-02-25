@@ -1,24 +1,55 @@
-"""Forensic Report Generator — HTML and JSON incident reports.
+"""Forensic Report Generator — HTML, JSON, and CSV incident reports.
 
 Generates self-contained HTML incident reports from the forensic
 audit trail.  Uses the ForensicLogger timeline, MITRE mapper, and
 alert data to produce compliance-ready documentation.
+
+Supports Jinja2 template rendering for incident reports and daily
+summaries, plus CSV export for timeline data.
 """
 
 from __future__ import annotations
 
+import csv
 import html
+import io
 import json
 import logging
+import pathlib
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
+
+try:
+    import jinja2
+
+    _HAS_JINJA2 = True
+except ImportError:  # pragma: no cover
+    _HAS_JINJA2 = False
 
 if TYPE_CHECKING:
     from aegis.intelligence.mitre_mapper import MITREMapper
     from aegis.response.forensic_logger import ForensicLogger
 
 logger = logging.getLogger(__name__)
+
+# Path to templates directory (project root / templates)
+_TEMPLATES_DIR = pathlib.Path(__file__).resolve().parents[3] / "templates"
+
+
+def _format_ts(value: float) -> str:
+    """Format a Unix timestamp as a human-readable UTC string."""
+    try:
+        return time.strftime(
+            "%Y-%m-%d %H:%M:%S UTC", time.gmtime(float(value)),
+        )
+    except (TypeError, ValueError, OSError):
+        return str(value)
+
+
+# ------------------------------------------------------------------ #
+# Data classes
+# ------------------------------------------------------------------ #
 
 
 @dataclass
@@ -40,6 +71,45 @@ class IncidentReport:
     total_actions: int = 0
 
 
+@dataclass
+class DailySummary:
+    """Data for a daily summary report."""
+
+    alert_counts: dict[str, int] = field(default_factory=dict)
+    top_rules: list[dict[str, Any]] = field(default_factory=list)
+    new_iocs: list[dict[str, str]] = field(default_factory=list)
+    sensor_status: dict[str, str] = field(default_factory=dict)
+
+
+# ------------------------------------------------------------------ #
+# Jinja2 environment (lazy singleton)
+# ------------------------------------------------------------------ #
+
+_jinja_env: jinja2.Environment | None = None
+
+
+def _get_jinja_env() -> jinja2.Environment:
+    """Return the shared Jinja2 environment, creating it on first call."""
+    global _jinja_env  # noqa: PLW0603
+    if _jinja_env is None:
+        if not _HAS_JINJA2:
+            raise RuntimeError(
+                "jinja2 is required for template rendering. "
+                "Install it with: pip install jinja2"
+            )
+        _jinja_env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(str(_TEMPLATES_DIR)),
+            autoescape=True,
+        )
+        _jinja_env.filters["format_ts"] = _format_ts
+    return _jinja_env
+
+
+# ------------------------------------------------------------------ #
+# ReportGenerator
+# ------------------------------------------------------------------ #
+
+
 class ReportGenerator:
     """Generate incident reports from the forensic audit trail.
 
@@ -58,6 +128,10 @@ class ReportGenerator:
     ) -> None:
         self._forensic_logger = forensic_logger
         self._mitre_mapper = mitre_mapper
+
+    # -------------------------------------------------------------- #
+    # Report generation from audit trail
+    # -------------------------------------------------------------- #
 
     def generate_report(
         self,
@@ -95,7 +169,9 @@ class ReportGenerator:
 
         for entry in timeline:
             details = entry.get("details", {})
-            log_type = details.get("log_type", entry.get("type", ""))
+            log_type = details.get(
+                "log_type", entry.get("type", ""),
+            )
 
             if log_type == "alert":
                 alerts.append(details)
@@ -126,7 +202,10 @@ class ReportGenerator:
             )
 
         # Compute time range
-        timestamps = [e.get("timestamp", 0) for e in timeline if e.get("timestamp")]
+        timestamps = [
+            e.get("timestamp", 0) for e in timeline
+            if e.get("timestamp")
+        ]
         time_start = min(timestamps) if timestamps else since
         time_end = max(timestamps) if timestamps else time.time()
 
@@ -144,7 +223,8 @@ class ReportGenerator:
             actions=actions,
             mitre_techniques=mitre_descriptions,
             iocs=[
-                {"type": t, "value": v} for t, v in sorted(ioc_set)
+                {"type": t, "value": v}
+                for t, v in sorted(ioc_set)
             ],
             summary=summary,
             total_events=len(timeline),
@@ -152,33 +232,44 @@ class ReportGenerator:
             total_actions=len(actions),
         )
 
+    # -------------------------------------------------------------- #
+    # Legacy inline-HTML renderer (kept for backwards compat)
+    # -------------------------------------------------------------- #
+
     def render_html(self, report: IncidentReport) -> str:
         """Render an IncidentReport to self-contained HTML."""
         title_esc = html.escape(report.title)
         generated = time.strftime(
-            "%Y-%m-%d %H:%M:%S UTC", time.gmtime(report.generated_at),
+            "%Y-%m-%d %H:%M:%S UTC",
+            time.gmtime(report.generated_at),
         )
         range_start = time.strftime(
-            "%Y-%m-%d %H:%M", time.gmtime(report.time_range_start),
+            "%Y-%m-%d %H:%M",
+            time.gmtime(report.time_range_start),
         )
         range_end = time.strftime(
-            "%Y-%m-%d %H:%M", time.gmtime(report.time_range_end),
+            "%Y-%m-%d %H:%M",
+            time.gmtime(report.time_range_end),
         )
 
         # Build timeline rows
         timeline_rows = ""
         for entry in report.timeline:
             ts = time.strftime(
-                "%H:%M:%S", time.gmtime(entry.get("timestamp", 0)),
+                "%H:%M:%S",
+                time.gmtime(entry.get("timestamp", 0)),
             )
-            severity = html.escape(str(entry.get("severity", "info")))
+            severity = html.escape(
+                str(entry.get("severity", "info")),
+            )
             source = html.escape(str(entry.get("source", "")))
             etype = html.escape(str(entry.get("type", "")))
             sev_class = f"sev-{severity}"
             timeline_rows += (
                 f"<tr class=\"{sev_class}\">"
                 f"<td>{ts}</td>"
-                f"<td><span class=\"badge {sev_class}\">{severity}</span></td>"
+                f"<td><span class=\"badge {sev_class}\">"
+                f"{severity}</span></td>"
                 f"<td>{source}</td>"
                 f"<td>{etype}</td>"
                 f"</tr>\n"
@@ -188,7 +279,9 @@ class ReportGenerator:
         alert_cards = ""
         for alert in report.alerts:
             a_title = html.escape(str(alert.get("title", "")))
-            a_sev = html.escape(str(alert.get("severity", "medium")))
+            a_sev = html.escape(
+                str(alert.get("severity", "medium")),
+            )
             a_conf = alert.get("confidence", 0)
             a_mitre = ", ".join(alert.get("mitre_ids", []))
             alert_cards += (
@@ -202,10 +295,16 @@ class ReportGenerator:
         # Build action rows
         action_rows = ""
         for action in report.actions:
-            a_type = html.escape(str(action.get("action_type", "")))
-            a_target = html.escape(str(action.get("target", "")))
+            a_type = html.escape(
+                str(action.get("action_type", "")),
+            )
+            a_target = html.escape(
+                str(action.get("target", "")),
+            )
             a_success = "Yes" if action.get("success") else "No"
-            a_msg = html.escape(str(action.get("message", "")))
+            a_msg = html.escape(
+                str(action.get("message", "")),
+            )
             action_rows += (
                 f"<tr>"
                 f"<td>{a_type}</td>"
@@ -248,6 +347,73 @@ class ReportGenerator:
             ioc_rows=ioc_rows,
         )
 
+    # -------------------------------------------------------------- #
+    # Jinja2 template renderers
+    # -------------------------------------------------------------- #
+
+    def render_incident_report(
+        self, data: dict[str, Any],
+    ) -> str:
+        """Render an incident report from a data dict via Jinja2.
+
+        Parameters
+        ----------
+        data:
+            Dict with keys: id, title, severity, timestamp,
+            summary, timeline, alerts, mitre_techniques, iocs,
+            response_actions, remediation_steps.
+
+        Returns
+        -------
+        str
+            Rendered HTML string.
+        """
+        env = _get_jinja_env()
+        template = env.get_template("reports/incident_report.html")
+        generated_at = _format_ts(
+            data.get("timestamp", time.time()),
+        )
+        return template.render(
+            **data,
+            generated_at=generated_at,
+        )
+
+    def render_daily_summary(
+        self, summary: DailySummary,
+    ) -> str:
+        """Render a daily summary report via Jinja2.
+
+        Parameters
+        ----------
+        summary:
+            DailySummary dataclass instance.
+
+        Returns
+        -------
+        str
+            Rendered HTML string.
+        """
+        env = _get_jinja_env()
+        template = env.get_template("reports/daily_summary.html")
+        total_alerts = sum(summary.alert_counts.values())
+        date_str = time.strftime("%Y-%m-%d", time.gmtime())
+        generated_at = time.strftime(
+            "%Y-%m-%d %H:%M:%S UTC", time.gmtime(),
+        )
+        return template.render(
+            date=date_str,
+            generated_at=generated_at,
+            alert_counts=summary.alert_counts,
+            total_alerts=total_alerts,
+            top_rules=summary.top_rules,
+            new_iocs=summary.new_iocs,
+            sensor_status=summary.sensor_status,
+        )
+
+    # -------------------------------------------------------------- #
+    # JSON export
+    # -------------------------------------------------------------- #
+
     @staticmethod
     def render_json(report: IncidentReport) -> str:
         """Export report as structured JSON."""
@@ -274,11 +440,48 @@ class ReportGenerator:
             indent=2,
         )
 
+    # -------------------------------------------------------------- #
+    # CSV export
+    # -------------------------------------------------------------- #
+
     @staticmethod
-    def export_stix_bundle(report: IncidentReport) -> dict[str, Any]:
+    def export_csv(report: IncidentReport) -> str:
+        """Export the report timeline as CSV.
+
+        Parameters
+        ----------
+        report:
+            IncidentReport with timeline data.
+
+        Returns
+        -------
+        str
+            CSV-formatted string with header row and one data row
+            per timeline entry.
+        """
+        columns = ["timestamp", "severity", "source", "type"]
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(columns)
+        for entry in report.timeline:
+            writer.writerow([
+                str(entry.get(col, "")) for col in columns
+            ])
+        return buf.getvalue()
+
+    # -------------------------------------------------------------- #
+    # STIX export
+    # -------------------------------------------------------------- #
+
+    @staticmethod
+    def export_stix_bundle(
+        report: IncidentReport,
+    ) -> dict[str, Any]:
         """Export IOCs from the report as a STIX 2.1 bundle dict."""
         objects: list[dict[str, Any]] = []
-        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        now = time.strftime(
+            "%Y-%m-%dT%H:%M:%SZ", time.gmtime(),
+        )
 
         for ioc in report.iocs:
             ioc_type = ioc["type"]
@@ -291,7 +494,9 @@ class ReportGenerator:
             elif ioc_type == "url":
                 pattern = f"[url:value = '{value}']"
             elif ioc_type == "hash":
-                pattern = f"[file:hashes.'SHA-256' = '{value}']"
+                pattern = (
+                    f"[file:hashes.'SHA-256' = '{value}']"
+                )
             else:
                 continue
 
@@ -314,28 +519,37 @@ class ReportGenerator:
             "objects": objects,
         }
 
+    # -------------------------------------------------------------- #
+    # Helpers
+    # -------------------------------------------------------------- #
+
     @staticmethod
     def _build_summary(
-        alert_count: int, action_count: int, mitre_techs: list[str],
+        alert_count: int,
+        action_count: int,
+        mitre_techs: list[str],
     ) -> str:
         """Build a human-readable summary string."""
         parts: list[str] = []
         if alert_count:
             parts.append(f"{alert_count} alert(s) generated")
         if action_count:
-            parts.append(f"{action_count} response action(s) taken")
+            parts.append(
+                f"{action_count} response action(s) taken",
+            )
         if mitre_techs:
             parts.append(
-                f"{len(mitre_techs)} MITRE ATT&CK technique(s) observed"
+                f"{len(mitre_techs)} MITRE ATT&CK technique(s)"
+                " observed"
             )
         if not parts:
             return "No security events recorded in this period."
         return ". ".join(parts) + "."
 
 
-# --------------------------------------------------------------------------- #
-# HTML template (self-contained, inline CSS)
-# --------------------------------------------------------------------------- #
+# ------------------------------------------------------------------ #
+# HTML template (self-contained, inline CSS) — legacy
+# ------------------------------------------------------------------ #
 
 _HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
@@ -374,7 +588,7 @@ code {{ background: #161b22; padding: 2px 6px; border-radius: 3px; }}
 </head>
 <body>
 <h1>{title}</h1>
-<p class="meta">Generated: {generated} | Period: {range_start} — {range_end}</p>
+<p class="meta">Generated: {generated} | Period: {range_start} \u2014 {range_end}</p>
 
 <div class="stats">
   <div class="stat">
@@ -421,7 +635,7 @@ code {{ background: #161b22; padding: 2px 6px; border-radius: 3px; }}
 
 <footer class="meta" style="margin-top: 32px; border-top: 1px solid #30363d;
   padding-top: 12px;">
-  Aegis AI Security Defense System — Automated Incident Report
+  Aegis AI Security Defense System \u2014 Automated Incident Report
 </footer>
 </body>
 </html>"""
