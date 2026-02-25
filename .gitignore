@@ -3,8 +3,11 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 dist/
-build/
 *.egg
+
+# Ignore transient build artefacts but keep the build scripts
+build/work/
+build/_version_info.txt
 
 # Virtual environments
 .venv/
