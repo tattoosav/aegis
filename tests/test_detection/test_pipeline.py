@@ -400,3 +400,131 @@ class TestMemoryForensics:
         )
         alerts = pipeline.process_event(event)
         assert alerts == []
+
+
+# ------------------------------------------------------------------ #
+# Threat predictor integration
+# ------------------------------------------------------------------ #
+
+class TestThreatPrediction:
+    """Tests for threat predictor integration in the pipeline."""
+
+    def test_pipeline_accepts_threat_predictor_param(self) -> None:
+        """DetectionPipeline accepts a threat_predictor kwarg."""
+        predictor = MagicMock()
+        pipeline = DetectionPipeline(threat_predictor=predictor)
+        assert pipeline._threat_predictor is predictor
+
+    def test_threat_predictor_defaults_to_none(self) -> None:
+        """Without threat_predictor param, attribute is None."""
+        pipeline = DetectionPipeline()
+        assert pipeline._threat_predictor is None
+
+    def test_threat_predictor_called_on_alert_with_mitre_ids(
+        self,
+    ) -> None:
+        """When an alert has mitre_ids, the threat predictor is called."""
+        predictor = MagicMock()
+        predictor.predict.return_value = MagicMock(predictions=[])
+
+        engine = MagicMock()
+        engine.evaluate.return_value = [
+            _FakeRule(mitre="T1059"),
+        ]
+        pipeline = DetectionPipeline(
+            rule_engine=engine,
+            threat_predictor=predictor,
+        )
+        pipeline.process_event(_make_event())
+        predictor.predict.assert_called_once_with(["T1059"])
+
+    def test_threat_predictor_not_called_without_mitre_ids(
+        self,
+    ) -> None:
+        """When alerts have no mitre_ids, predictor is not called."""
+        predictor = MagicMock()
+        ad = MagicMock()
+        ad.extract_features.return_value = [1.0]
+        ad.score.return_value = 0.45
+        ad.classify.return_value = "suspicious"
+        pipeline = DetectionPipeline(
+            anomaly_detector=ad,
+            threat_predictor=predictor,
+        )
+        pipeline.process_event(_make_event())
+        predictor.predict.assert_not_called()
+
+    def test_threat_predictor_not_called_when_none(self) -> None:
+        """No crash when threat_predictor is None and alert has MITRE."""
+        engine = MagicMock()
+        engine.evaluate.return_value = [
+            _FakeRule(mitre="T1059"),
+        ]
+        pipeline = DetectionPipeline(rule_engine=engine)
+        # Should not raise
+        alerts = pipeline.process_event(_make_event())
+        assert len(alerts) == 1
+
+    def test_threat_predictor_exception_handled(self) -> None:
+        """Predictor crash does not break pipeline; alerts returned."""
+        predictor = MagicMock()
+        predictor.predict.side_effect = RuntimeError("boom")
+
+        engine = MagicMock()
+        engine.evaluate.return_value = [
+            _FakeRule(mitre="T1071"),
+        ]
+        pipeline = DetectionPipeline(
+            rule_engine=engine,
+            threat_predictor=predictor,
+        )
+        alerts = pipeline.process_event(_make_event())
+        # Alert still returned despite predictor failure
+        assert len(alerts) == 1
+
+    def test_threat_predictor_called_with_multiple_mitre_ids(
+        self,
+    ) -> None:
+        """Predictor receives all MITRE IDs from the alert."""
+        predictor = MagicMock()
+        predictor.predict.return_value = MagicMock(predictions=[])
+
+        ga = MagicMock()
+        ga.analyze.return_value = [
+            _FakeChain(mitre_ids=["T1486", "T1490"]),
+        ]
+        pipeline = DetectionPipeline(
+            graph_analyzer=ga,
+            threat_predictor=predictor,
+        )
+        pipeline.process_event(_make_event())
+        predictor.predict.assert_called_once_with(
+            ["T1486", "T1490"],
+        )
+
+    def test_prediction_results_stored_in_alert_data(
+        self,
+    ) -> None:
+        """Prediction results are stored in the alert's data dict."""
+        pred_result = MagicMock()
+        pred_result.predictions = [
+            MagicMock(
+                technique_id="T1059",
+                name="Command and Scripting",
+                probability=0.8,
+            ),
+        ]
+        predictor = MagicMock()
+        predictor.predict.return_value = pred_result
+
+        engine = MagicMock()
+        engine.evaluate.return_value = [
+            _FakeRule(mitre="T1566"),
+        ]
+        pipeline = DetectionPipeline(
+            rule_engine=engine,
+            threat_predictor=predictor,
+        )
+        alerts = pipeline.process_event(_make_event())
+        assert len(alerts) == 1
+        assert "_threat_predictions" in alerts[0].data

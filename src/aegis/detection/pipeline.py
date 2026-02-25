@@ -62,6 +62,8 @@ class DetectionPipeline:
         Instance with ``add_event(event)``, ``analyze() -> list[ChainMatch]``.
     memory_forensics:
         Instance with ``analyze_event(event) -> list[Alert]``.
+    threat_predictor:
+        Instance with ``predict(mitre_ids) -> PredictionResult``.
     """
 
     def __init__(
@@ -76,6 +78,7 @@ class DetectionPipeline:
         dns_analyzer: Any = None,
         whitelist_manager: Any = None,
         memory_forensics: Any = None,
+        threat_predictor: Any = None,
     ) -> None:
         self._rule_engine = rule_engine
         self._anomaly_detector = anomaly_detector
@@ -87,6 +90,7 @@ class DetectionPipeline:
         self._dns_analyzer = dns_analyzer
         self._whitelist_manager = whitelist_manager
         self._memory_forensics = memory_forensics
+        self._threat_predictor = threat_predictor
 
     # ------------------------------------------------------------------
     # Public API
@@ -111,6 +115,10 @@ class DetectionPipeline:
 
         # 3. Parallel / independent engines
         alerts.extend(self._run_parallel_engines(event))
+
+        # 4. Threat prediction — enrich alerts that have MITRE IDs
+        for alert in alerts:
+            self._run_threat_prediction(alert)
 
         return alerts
 
@@ -416,6 +424,39 @@ class DetectionPipeline:
                 event.event_id,
             )
             return []
+
+    # ------------------------------------------------------------------
+    # Threat prediction
+    # ------------------------------------------------------------------
+
+    def _run_threat_prediction(self, alert: Alert) -> None:
+        """Run threat predictor on an alert that has MITRE IDs.
+
+        If the alert has non-empty ``mitre_ids`` and a threat predictor
+        is configured, call the predictor and store results in the
+        alert's ``data`` dict under ``_threat_predictions``.
+        """
+        if self._threat_predictor is None:
+            return
+        if not alert.mitre_ids:
+            return
+        try:
+            result = self._threat_predictor.predict(
+                alert.mitre_ids,
+            )
+            alert.data["_threat_predictions"] = [
+                {
+                    "technique_id": p.technique_id,
+                    "name": p.name,
+                    "probability": p.probability,
+                }
+                for p in result.predictions
+            ]
+        except Exception:
+            logger.exception(
+                "Threat predictor failed for alert %s",
+                alert.alert_id,
+            )
 
     # ------------------------------------------------------------------
     # Alert factory

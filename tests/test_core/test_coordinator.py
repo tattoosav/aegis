@@ -337,3 +337,61 @@ class TestCoordinatorProperties:
             setup_coordinator.correlation_engine
             is setup_coordinator._correlation_engine
         )
+
+
+# ==================================================================
+# TestCoordinatorMLWiring
+# ==================================================================
+
+
+class TestCoordinatorMLWiring:
+    """Verify that ML components are wired into the coordinator."""
+
+    @pytest.fixture
+    def ml_config(self, tmp_path):
+        """AegisConfig with ML-friendly defaults."""
+        cfg = AegisConfig()
+        cfg._data["database"] = {
+            "path": str(tmp_path / "test.db"),
+        }
+        cfg._data.setdefault("canary", {})
+        cfg._data["canary"]["directories"] = []
+        cfg._data["canary"]["enabled"] = False
+        return cfg
+
+    @pytest.fixture
+    def ml_coordinator(self, ml_config):
+        """Coordinator with setup() called (ML focus)."""
+        coord = AegisCoordinator(ml_config)
+        coord.setup()
+        return coord
+
+    def test_setup_creates_training_pipeline(
+        self, ml_coordinator,
+    ):
+        """TrainingPipeline is created during setup."""
+        assert ml_coordinator._training_pipeline is not None
+
+    def test_setup_creates_feature_extractor(
+        self, ml_coordinator,
+    ):
+        """FeatureExtractor is created during setup."""
+        assert ml_coordinator._feature_extractor is not None
+
+    def test_training_pipeline_property(
+        self, ml_coordinator,
+    ):
+        """training_pipeline property exposes the component."""
+        assert (
+            ml_coordinator.training_pipeline
+            is ml_coordinator._training_pipeline
+        )
+
+    def test_feature_extractor_property(
+        self, ml_coordinator,
+    ):
+        """feature_extractor property exposes the component."""
+        assert (
+            ml_coordinator.feature_extractor
+            is ml_coordinator._feature_extractor
+        )

@@ -43,6 +43,9 @@ class AegisCoordinator:
         self._transport: Any = None
         self._sensor_manager: Any = None
         self._sensors: list[Any] = []
+        self._training_pipeline: Any = None
+        self._feature_extractor: Any = None
+        self._threat_predictor: Any = None
 
     # ------------------------------------------------------------------
     # Setup
@@ -161,6 +164,47 @@ class AegisCoordinator:
             logger.info("GraphAnalyzer initialised")
         except Exception as exc:
             logger.warning("GraphAnalyzer init failed: %s", exc)
+
+        # 4b. ML components — TrainingPipeline + FeatureExtractor
+        try:
+            from aegis.ml.training_pipeline import (
+                TrainingPipeline,
+            )
+
+            self._training_pipeline = TrainingPipeline()
+            logger.info("TrainingPipeline initialised")
+        except Exception as exc:
+            logger.warning(
+                "TrainingPipeline init failed: %s", exc,
+            )
+
+        try:
+            from aegis.ml.feature_extractor import (
+                FeatureExtractor,
+            )
+
+            self._feature_extractor = FeatureExtractor()
+            logger.info("FeatureExtractor initialised")
+        except Exception as exc:
+            logger.warning(
+                "FeatureExtractor init failed: %s", exc,
+            )
+
+        # 4c. ThreatPredictor
+        try:
+            from aegis.detection.threat_predictor import (
+                ThreatPredictor,
+            )
+
+            self._threat_predictor = ThreatPredictor()
+            pipeline_kwargs[
+                "threat_predictor"
+            ] = self._threat_predictor
+            logger.info("ThreatPredictor initialised")
+        except Exception as exc:
+            logger.warning(
+                "ThreatPredictor init failed: %s", exc,
+            )
 
         # 5. DetectionPipeline
         try:
@@ -818,3 +862,18 @@ class AegisCoordinator:
     def sensor_manager(self) -> Any:
         """The :class:`SensorManager`, or ``None``."""
         return self._sensor_manager
+
+    @property
+    def training_pipeline(self) -> Any:
+        """The :class:`TrainingPipeline`, or ``None``."""
+        return self._training_pipeline
+
+    @property
+    def feature_extractor(self) -> Any:
+        """The :class:`FeatureExtractor`, or ``None``."""
+        return self._feature_extractor
+
+    @property
+    def threat_predictor(self) -> Any:
+        """The :class:`ThreatPredictor`, or ``None``."""
+        return self._threat_predictor
