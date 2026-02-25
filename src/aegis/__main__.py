@@ -124,6 +124,30 @@ def _run_headless(config: AegisConfig) -> int:
 
 def _run_gui(config: AegisConfig) -> int:
     """Run Aegis with the full PySide6 dashboard."""
+    # --- First-run wizard (before coordinator) ---
+    if not config.get("first_run_complete"):
+        try:
+            from PySide6.QtWidgets import QApplication
+
+            from aegis.ui.first_run_wizard import (
+                FirstRunWizard,
+            )
+
+            wiz_app = QApplication.instance()
+            if wiz_app is None:
+                wiz_app = QApplication(sys.argv)
+            wizard = FirstRunWizard(config)
+            if wizard.exec() != wizard.DialogCode.Accepted:
+                logger.info(
+                    "First-run wizard cancelled by user"
+                )
+                return 0
+            logger.info("First-run wizard completed")
+        except ImportError:
+            logger.warning(
+                "PySide6 not available — skipping wizard"
+            )
+
     coordinator = AegisCoordinator(config)
     coordinator.setup()
     coordinator.start()
